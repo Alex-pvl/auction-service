@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Auction Service Test UI</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Georgia", "Times New Roman", serif;
+        background: radial-gradient(circle at top, #f7efe3, #e9dccb 55%, #d9c9b5);
+      }
+      body {
+        margin: 0;
+        padding: 48px 20px;
+        color: #2a1f18;
+      }
+      .container {
+        max-width: 760px;
+        margin: 0 auto;
+        background: rgba(255, 255, 255, 0.86);
+        border: 2px solid #2a1f18;
+        box-shadow: 8px 8px 0 #2a1f18;
+        padding: 32px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 2.4rem;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
+      p {
+        margin: 0 0 24px;
+      }
+      form {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+      input {
+        flex: 1;
+        padding: 12px 14px;
+        border: 2px solid #2a1f18;
+        font-size: 1rem;
+      }
+      button {
+        padding: 12px 18px;
+        border: 2px solid #2a1f18;
+        background: #f6a15c;
+        font-weight: 700;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: transform 0.1s ease;
+      }
+      button:active {
+        transform: translate(2px, 2px);
+      }
+      .status {
+        display: inline-block;
+        padding: 6px 10px;
+        border: 2px solid #2a1f18;
+        font-weight: 700;
+        margin-bottom: 16px;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 12px;
+      }
+      li {
+        padding: 12px 16px;
+        border: 2px dashed #2a1f18;
+        background: #fff7eb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Auction Service</h1>
+      <p>Quick test UI for the API.</p>
+      <div class="status" id="status">Checking...</div>
+      <form id="item-form">
+        <input id="item-input" placeholder="Item name" required />
+        <button type="submit">Create</button>
+      </form>
+      <ul id="items"></ul>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const itemsEl = document.getElementById("items");
+      const form = document.getElementById("item-form");
+      const input = document.getElementById("item-input");
+
+      async function loadHealth() {
+        const res = await fetch("/api/health");
+        const data = await res.json();
+        statusEl.textContent = data.ok ? "API healthy" : "API not ready";
+        statusEl.style.background = data.ok ? "#b6e7a7" : "#f2b8b5";
+      }
+
+      async function loadItems() {
+        const res = await fetch("/api/items");
+        const items = await res.json();
+        itemsEl.innerHTML = "";
+        items.forEach((item) => {
+          const li = document.createElement("li");
+          li.textContent = item.name;
+          itemsEl.appendChild(li);
+        });
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const name = input.value.trim();
+        if (!name) return;
+        await fetch("/api/items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        input.value = "";
+        await loadItems();
+      });
+
+      loadHealth();
+      loadItems();
+    </script>
+  </body>
+</html>
