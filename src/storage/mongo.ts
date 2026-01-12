@@ -50,8 +50,9 @@ const roundSchema = new mongoose.Schema<RoundType>({
 });
 
 const userSchema = new mongoose.Schema<UserType>({
+  tg_id: { type: Number, required: true, unique: true },
   username: { type: String, required: true },
-  balance: { type: Number, required: true },
+  balance: { type: Number, required: true, default: 0 },
 });
 
 const deliveriesSchema = new mongoose.Schema<DeliveriesType>(

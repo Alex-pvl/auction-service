@@ -10,6 +10,11 @@ import {
   updateAuction,
 } from "../services/auctions.js";
 import type { AuctionUpdateInput } from "../services/auctions.js";
+import {
+  adjustUserBalanceByTgId,
+  ensureUserByTgId,
+  getUserByTgId,
+} from "../services/users.js";
 
 const auctionStatuses = new Set(["DRAFT", "LIVE", "FINISHED", "DELETED"]);
 
@@ -28,6 +33,21 @@ function parseOptionalNumber(value: unknown) {
   }
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+}
+
+function parseTgId(value: unknown) {
+  const tgId = Number(value);
+  if (!Number.isFinite(tgId) || tgId <= 0 || !Number.isInteger(tgId)) return null;
+  return tgId;
+}
+
+async function requireUserByTgId(tgId: number, res: any) {
+  const user = await getUserByTgId(tgId);
+  if (!user) {
+    res.status(404).json({ error: "user not found" });
+    return null;
+  }
+  return user;
 }
 
 export function registerApiRoutes(app: Express, redis: RedisClientType<any, any, any>) {
@@ -63,12 +83,16 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
       return;
     }
 
-    const creatorHeader = req.get("X-Creator-Id");
-    const creatorId = creatorHeader !== undefined ? Number(creatorHeader) : NaN;
+    const userHeader = req.get("X-User-Id");
+    const userId = userHeader ? parseTgId(userHeader) : null;
 
-    if (auction.status === "DRAFT" && Number.isFinite(creatorId) && creatorId !== auction.creator_id) {
-      res.status(403).json({ error: "creator_id mismatch" });
-      return;
+    if (auction.status === "DRAFT" && userId) {
+      const user = await requireUserByTgId(userId, res);
+      if (!user) return;
+      if (user.tg_id !== auction.creator_id) {
+        res.status(403).json({ error: "creator_id mismatch" });
+        return;
+      }
     }
 
     res.json(auction);
@@ -77,8 +101,8 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
   app.post("/api/auctions", async (req, res) => {
     const body = req.body ?? {};
     const errors: string[] = [];
-    const creatorHeader = req.get("X-Creator-Id");
-    const creatorId = creatorHeader !== undefined ? Number(creatorHeader) : NaN;
+    const userHeader = req.get("X-User-Id");
+    const creatorId = userHeader ? parseTgId(userHeader) : null;
 
     const nameRaw = body.name;
     const name = nameRaw === undefined || nameRaw === null ? null : String(nameRaw).trim() || null;
@@ -90,7 +114,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     const roundDurationMs = Number(body.round_duration_ms);
     const startDateTime = toDate(body.start_datetime);
 
-    if (!Number.isFinite(creatorId)) errors.push("missing X-Creator-Id header");
+    if (!creatorId) errors.push("missing X-User-Id header");
     if (!itemName) errors.push("item_name");
     if (!Number.isFinite(minBid)) errors.push("min_bid");
     if (!Number.isFinite(winnersCountTotal)) errors.push("winners_count_total");
@@ -116,9 +140,12 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     const totalDurationMs = firstRoundDuration + Math.max(roundsCount - 1, 0) * roundDurationMs;
     const plannedEndDateTime = new Date(startDateTime.getTime() + totalDurationMs);
 
+    const creatorUser = await requireUserByTgId(creatorId!, res);
+    if (!creatorUser) return;
+
     const auction = await createAuction({
       name,
-      creator_id: creatorId,
+      creator_id: creatorId!,
       item_name: itemName,
       min_bid: minBid,
       winners_count_total: winnersCountTotal,
@@ -143,12 +170,15 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
       return;
     }
 
-    const creatorHeader = req.get("X-Creator-Id");
-    const creatorId = creatorHeader !== undefined ? Number(creatorHeader) : NaN;
-    if (!Number.isFinite(creatorId)) {
-      res.status(400).json({ error: "creator_id header is required" });
+    const userHeader = req.get("X-User-Id");
+    const creatorId = userHeader ? parseTgId(userHeader) : null;
+    if (!creatorId) {
+      res.status(400).json({ error: "user_id header is required" });
       return;
     }
+
+    const creatorUser = await requireUserByTgId(creatorId, res);
+    if (!creatorUser) return;
 
     const existingAuction = await getAuctionById(id);
     if (!existingAuction) {
@@ -262,6 +292,16 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
       return;
     }
 
+    const existingAuction = await getAuctionById(id);
+    if (!existingAuction) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    if (existingAuction.status !== "DRAFT") {
+      res.status(409).json({ error: "only DRAFT auctions can be deleted" });
+      return;
+    }
+
     const auction = await softDeleteAuction(id);
     if (!auction) {
       res.status(404).json({ error: "not found" });
@@ -278,12 +318,15 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
       return;
     }
 
-    const creatorHeader = req.get("X-Creator-Id");
-    const creatorId = creatorHeader !== undefined ? Number(creatorHeader) : NaN;
-    if (!Number.isFinite(creatorId)) {
-      res.status(400).json({ error: "creator_id header is required" });
+    const userHeader = req.get("X-User-Id");
+    const creatorId = userHeader ? parseTgId(userHeader) : null;
+    if (!creatorId) {
+      res.status(400).json({ error: "user_id header is required" });
       return;
     }
+
+    const creatorUser = await requireUserByTgId(creatorId, res);
+    if (!creatorUser) return;
 
     const existingAuction = await getAuctionById(id);
     if (!existingAuction) {
@@ -306,5 +349,66 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     }
 
     res.json(auction);
+  });
+
+  app.post("/api/users/auth", async (req, res) => {
+    const tgId = parseTgId(req.body?.tg_id);
+    if (!tgId) {
+      res.status(400).json({ error: "tg_id is required" });
+      return;
+    }
+
+    const user = await ensureUserByTgId(tgId);
+    res.json(user);
+  });
+
+  app.post("/api/users/:tgId/balance/increase", async (req, res) => {
+    const tgId = parseTgId(req.params.tgId);
+    if (!tgId) {
+      res.status(400).json({ error: "invalid tg_id" });
+      return;
+    }
+
+    const amount = Number(req.body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status(400).json({ error: "amount must be positive" });
+      return;
+    }
+
+    const user = await getUserByTgId(tgId);
+    if (!user) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+
+    const updated = await adjustUserBalanceByTgId(tgId, amount);
+    res.json(updated);
+  });
+
+  app.post("/api/users/:tgId/balance/decrease", async (req, res) => {
+    const tgId = parseTgId(req.params.tgId);
+    if (!tgId) {
+      res.status(400).json({ error: "invalid tg_id" });
+      return;
+    }
+
+    const amount = Number(req.body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status(400).json({ error: "amount must be positive" });
+      return;
+    }
+
+    const user = await getUserByTgId(tgId);
+    if (!user) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    if (user.balance < amount) {
+      res.status(409).json({ error: "insufficient balance" });
+      return;
+    }
+
+    const updated = await adjustUserBalanceByTgId(tgId, -amount);
+    res.json(updated);
   });
 }

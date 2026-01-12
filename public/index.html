@@ -103,6 +103,16 @@
         box-shadow: 6px 6px 0 var(--ink);
         padding: 20px;
       }
+      section.browse-compact {
+        padding: 14px;
+      }
+      section.browse-compact h2 {
+        font-size: 0.95rem;
+        margin-bottom: 10px;
+      }
+      section.browse-compact form {
+        gap: 8px;
+      }
       section h2 {
         margin: 0 0 14px;
         text-transform: uppercase;
@@ -170,6 +180,25 @@
       .list-wrap {
         display: grid;
         gap: 16px;
+      }
+      .user-panel {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        border: 2px dashed var(--ink);
+        background: #fffaf3;
+      }
+      .user-panel strong {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .user-stats {
+        display: grid;
+        gap: 4px;
+        font-size: 0.9rem;
+      }
+      .user-stats span {
+        font-weight: 600;
       }
       .auction-card {
         background: #fff8ee;
@@ -260,7 +289,7 @@
       </header>
 
       <div class="panel-grid">
-        <section>
+        <section class="browse-compact">
           <h2>Browse Auctions</h2>
           <form id="filter-form">
             <div class="field-row">
@@ -291,8 +320,8 @@
           <p class="helper">Required fields are enforced by the API. Start time must be in the future.</p>
           <form id="create-form">
             <div>
-              <label for="create-creator">Creator ID (header)</label>
-              <input id="create-creator" type="number" min="1" placeholder="e.g. 101" required />
+              <label for="create-creator">User ID (tg_id)</label>
+              <input id="create-creator" type="number" min="1" step="1" placeholder="e.g. 123456" required />
             </div>
             <div>
               <label for="create-name">Auction Name (optional)</label>
@@ -338,6 +367,39 @@
         </section>
       </div>
 
+      <div class="panel-grid">
+        <section>
+          <h2>User Access</h2>
+          <div class="user-panel">
+            <strong>Current user</strong>
+            <div class="user-stats" id="user-stats">
+              <div><span>Status:</span> Guest</div>
+              <div><span>tg_id:</span> -</div>
+              <div><span>Username:</span> -</div>
+              <div><span>Balance:</span> -</div>
+            </div>
+          </div>
+          <form id="auth-form">
+            <label for="auth-tg-id">Authorize by tg_id</label>
+            <input id="auth-tg-id" type="number" min="1" step="1" placeholder="Telegram user id" required />
+            <button type="submit">Authorize</button>
+          </form>
+        </section>
+
+        <section>
+          <h2>Balance Control</h2>
+          <p class="helper">Balance updates use tg_id and do not require headers.</p>
+          <form id="balance-form">
+            <label for="balance-amount">Amount</label>
+            <input id="balance-amount" type="number" min="1" step="0.01" placeholder="e.g. 100" required />
+            <div class="actions">
+              <button type="button" id="balance-increase">Increase</button>
+              <button class="secondary" type="button" id="balance-decrease">Decrease</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
       <div class="split">
         <section>
           <h2>Auctions Feed</h2>
@@ -353,8 +415,8 @@
               <input id="update-id" type="text" readonly />
             </div>
             <div>
-              <label for="update-creator">Creator ID (header)</label>
-              <input id="update-creator" type="number" min="1" placeholder="needed for updates" />
+              <label for="update-creator">User ID (tg_id)</label>
+              <input id="update-creator" type="number" min="1" step="1" placeholder="needed for updates" />
             </div>
             <div>
               <label for="update-name">Auction Name</label>
@@ -435,10 +497,17 @@
       const updateStart = document.getElementById("update-start");
       const updateReset = document.getElementById("update-reset");
       const selectedLabel = document.getElementById("selected-label");
+      const userStats = document.getElementById("user-stats");
+      const authForm = document.getElementById("auth-form");
+      const authTgId = document.getElementById("auth-tg-id");
+      const balanceAmount = document.getElementById("balance-amount");
+      const balanceIncrease = document.getElementById("balance-increase");
+      const balanceDecrease = document.getElementById("balance-decrease");
 
       const state = {
         auctions: [],
         selected: null,
+        user: null,
       };
 
       function setAction(message, tone = "neutral") {
@@ -455,6 +524,12 @@
         )}:${pad(date.getMinutes())}`;
       }
 
+      function syncDateMins() {
+        const minValue = formatLocalInput(new Date());
+        createStart.min = minValue;
+        updateStart.min = minValue;
+      }
+
       function toLocalInput(value) {
         if (!value) return "";
         const date = new Date(value);
@@ -467,6 +542,13 @@
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return null;
         return date.toISOString();
+      }
+
+      function formatDate(value) {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "-";
+        return date.toLocaleString();
       }
 
       async function apiRequest(path, options = {}) {
@@ -497,9 +579,34 @@
         }
       }
 
+      function renderUser() {
+        if (!state.user) {
+          userStats.innerHTML = `
+            <div><span>Status:</span> Guest</div>
+            <div><span>tg_id:</span> -</div>
+            <div><span>Username:</span> -</div>
+            <div><span>Balance:</span> -</div>
+          `;
+          return;
+        }
+        userStats.innerHTML = `
+          <div><span>Status:</span> Active</div>
+          <div><span>tg_id:</span> ${state.user.tg_id}</div>
+          <div><span>Username:</span> ${state.user.username}</div>
+          <div><span>Balance:</span> ${state.user.balance}</div>
+        `;
+      }
+
       function renderAuctions() {
         listEl.innerHTML = "";
-        if (!state.auctions.length) {
+        const visible = state.auctions.filter((auction) => {
+          if (auction.status === "DELETED") return false;
+          if (auction.status === "LIVE") return true;
+          if (!state.user) return false;
+          return auction.creator_id === state.user.tg_id;
+        });
+
+        if (!visible.length) {
           const empty = document.createElement("div");
           empty.className = "empty";
           empty.textContent = "No auctions found.";
@@ -507,7 +614,7 @@
           return;
         }
 
-        state.auctions.forEach((auction) => {
+        visible.forEach((auction) => {
           const card = document.createElement("div");
           card.className = "auction-card";
 
@@ -525,11 +632,22 @@
           meta.className = "meta";
           meta.innerHTML = `
             <div><span>ID:</span> ${auction._id}</div>
+            <div><span>Name:</span> ${auction.name || "Untitled"}</div>
+            <div><span>Creator tg_id:</span> ${auction.creator_id}</div>
             <div><span>Item:</span> ${auction.item_name}</div>
-            <div><span>Creator:</span> ${auction.creator_id}</div>
+            <div><span>Status:</span> ${auction.status}</div>
             <div><span>Min bid:</span> ${auction.min_bid}</div>
-            <div><span>Rounds:</span> ${auction.rounds_count} | Winners: ${auction.winners_count_total}</div>
-            <div><span>Starts:</span> ${new Date(auction.start_datetime).toLocaleString()}</div>
+            <div><span>Winners total:</span> ${auction.winners_count_total}</div>
+            <div><span>Rounds count:</span> ${auction.rounds_count}</div>
+            <div><span>Winners/round:</span> ${auction.winners_per_round}</div>
+            <div><span>First round (ms):</span> ${auction.first_round_duration_ms ?? "-"}</div>
+            <div><span>Round duration (ms):</span> ${auction.round_duration_ms}</div>
+            <div><span>Current round idx:</span> ${auction.current_round_idx}</div>
+            <div><span>Remaining items:</span> ${auction.remaining_items_count}</div>
+            <div><span>Starts:</span> ${formatDate(auction.start_datetime)}</div>
+            <div><span>Planned end:</span> ${formatDate(auction.planned_end_datetime)}</div>
+            <div><span>Created at:</span> ${formatDate(auction.created_at)}</div>
+            <div><span>Updated at:</span> ${formatDate(auction.updated_at)}</div>
           `;
 
           const actions = document.createElement("div");
@@ -546,6 +664,14 @@
           deleteBtn.className = "ghost";
           deleteBtn.textContent = "Delete";
           deleteBtn.addEventListener("click", () => deleteAuction(auction));
+
+          if (state.user && auction.creator_id === state.user.tg_id && auction.status === "DRAFT") {
+            const releaseBtn = document.createElement("button");
+            releaseBtn.type = "button";
+            releaseBtn.textContent = "Release";
+            releaseBtn.addEventListener("click", () => releaseAuction(auction));
+            actions.appendChild(releaseBtn);
+          }
 
           actions.appendChild(selectBtn);
           actions.appendChild(deleteBtn);
@@ -580,11 +706,13 @@
         updateId.value = auction._id || "";
         updateName.value = auction.name || "";
         updateItem.value = auction.item_name || "";
+        updateCreator.value = auction.creator_id || "";
         updateMinBid.value = auction.min_bid ?? "";
         updateWinners.value = auction.winners_count_total ?? "";
         updateRounds.value = auction.rounds_count ?? "";
         updateFirstRound.value = auction.first_round_duration_ms ?? "";
         updateRoundDuration.value = auction.round_duration_ms ?? "";
+        syncDateMins();
         updateStart.value = toLocalInput(auction.start_datetime);
       }
 
@@ -597,12 +725,17 @@
 
       function resetCreateForm() {
         createForm.reset();
+        syncDateMins();
         createStart.value = formatLocalInput(new Date(Date.now() + 60 * 60 * 1000));
       }
 
       async function createAuction(event) {
         event.preventDefault();
         const creatorId = Number(createCreator.value);
+        if (!Number.isFinite(creatorId) || creatorId <= 0) {
+          setAction("User ID is required", "warn");
+          return;
+        }
         const startIso = toIsoFromInput(createStart.value);
         const payload = {
           name: createName.value.trim() || null,
@@ -621,7 +754,7 @@
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "X-Creator-Id": String(creatorId),
+              "X-User-Id": String(creatorId),
             },
             body: JSON.stringify(payload),
           });
@@ -640,8 +773,8 @@
           return;
         }
         const creatorId = Number(updateCreator.value);
-        if (!Number.isFinite(creatorId)) {
-          setAction("Creator ID is required for update", "warn");
+        if (!Number.isFinite(creatorId) || creatorId <= 0) {
+          setAction("User ID is required for update", "warn");
           return;
         }
 
@@ -664,7 +797,7 @@
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
-              "X-Creator-Id": String(creatorId),
+              "X-User-Id": String(creatorId),
             },
             body: JSON.stringify(payload),
           });
@@ -689,6 +822,78 @@
         }
       }
 
+      async function releaseAuction(auction) {
+        if (!auction?._id || !state.user?.tg_id) return;
+        setAction("Releasing auction...");
+        try {
+          await apiRequest(`http://localhost:3000/api/auctions/${auction._id}/release`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-User-Id": String(state.user.tg_id),
+            },
+          });
+          setAction("Auction released", "ok");
+          await loadAuctions();
+        } catch (error) {
+          setAction(error.message || "Release failed", "warn");
+        }
+      }
+
+      async function authUser(event) {
+        event.preventDefault();
+        const tgId = Number(authTgId.value);
+        if (!Number.isFinite(tgId) || tgId <= 0) {
+          setAction("Enter a valid tg_id", "warn");
+          return;
+        }
+        setAction("Authorizing...");
+        try {
+          const user = await apiRequest("http://localhost:3000/api/users/auth", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tg_id: tgId }),
+          });
+          state.user = user;
+          renderUser();
+          createCreator.value = String(user.tg_id);
+          updateCreator.value = String(user.tg_id);
+          setAction("User authorized", "ok");
+        } catch (error) {
+          setAction(error.message || "Authorization failed", "warn");
+        }
+      }
+
+      async function changeBalance(direction) {
+        if (!state.user?.tg_id) {
+          setAction("Authorize first", "warn");
+          return;
+        }
+        const amount = Number(balanceAmount.value);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          setAction("Enter a valid amount", "warn");
+          return;
+        }
+        const endpoint =
+          direction === "increase"
+            ? `http://localhost:3000/api/users/${state.user.tg_id}/balance/increase`
+            : `http://localhost:3000/api/users/${state.user.tg_id}/balance/decrease`;
+        setAction("Updating balance...");
+        try {
+          const user = await apiRequest(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ amount }),
+          });
+          state.user = user;
+          renderUser();
+          balanceAmount.value = "";
+          setAction("Balance updated", "ok");
+        } catch (error) {
+          setAction(error.message || "Balance update failed", "warn");
+        }
+      }
+
       filterForm.addEventListener("submit", (event) => {
         event.preventDefault();
         loadAuctions();
@@ -698,8 +903,12 @@
       createReset.addEventListener("click", resetCreateForm);
       updateReset.addEventListener("click", resetSelection);
       clearSelectionBtn.addEventListener("click", resetSelection);
+      authForm.addEventListener("submit", authUser);
+      balanceIncrease.addEventListener("click", () => changeBalance("increase"));
+      balanceDecrease.addEventListener("click", () => changeBalance("decrease"));
 
       resetCreateForm();
+      renderUser();
       loadHealth();
       loadAuctions();
     </script>

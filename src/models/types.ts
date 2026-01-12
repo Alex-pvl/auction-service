@@ -46,6 +46,7 @@ export interface Round {
 
 export interface User {
     _id: ObjectId;
+    tg_id: number;
     username: string;
     balance: number;
 }
