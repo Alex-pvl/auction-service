@@ -24,3 +24,7 @@ export async function updateAuction(id: string, input: AuctionUpdateInput) {
 export async function softDeleteAuction(id: string) {
   return Auction.findByIdAndUpdate(id, { status: "DELETED" }, { new: true }).lean();
 }
+
+export async function releaseAuction(id: string) {
+  return Auction.findByIdAndUpdate(id, { status: "RELEASED" }, { new: true }).lean();
+}

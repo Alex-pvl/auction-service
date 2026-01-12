@@ -3,130 +3,705 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Auction Service Test UI</title>
+    <title>Auction Service Console</title>
     <style>
       :root {
         color-scheme: light;
-        font-family: "Georgia", "Times New Roman", serif;
-        background: radial-gradient(circle at top, #f7efe3, #e9dccb 55%, #d9c9b5);
+        font-family: "Space Grotesk", "Futura", "Trebuchet MS", sans-serif;
+        --ink: #1d1a17;
+        --paper: #f7f1e6;
+        --glow: #f2d6a2;
+        --accent: #f2785c;
+        --accent-deep: #b74f39;
+        --mint: #9ad1c8;
+        --mint-deep: #2f6d67;
+        --violet: #4b3a67;
+        --shadow: rgba(29, 26, 23, 0.22);
+      }
+      * {
+        box-sizing: border-box;
       }
       body {
         margin: 0;
-        padding: 48px 20px;
-        color: #2a1f18;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 20% 10%, rgba(242, 214, 162, 0.45), transparent 55%),
+          radial-gradient(circle at 85% 0%, rgba(154, 209, 200, 0.5), transparent 55%),
+          linear-gradient(120deg, #f9efe0, #f3e3cb 55%, #edd8bc);
+        padding: 32px 18px 64px;
       }
-      .container {
-        max-width: 760px;
+      .shell {
+        max-width: 1200px;
         margin: 0 auto;
-        background: rgba(255, 255, 255, 0.86);
-        border: 2px solid #2a1f18;
-        box-shadow: 8px 8px 0 #2a1f18;
-        padding: 32px;
+        display: grid;
+        gap: 24px;
+        animation: pageIn 0.8s ease both;
       }
-      h1 {
-        margin: 0 0 8px;
-        font-size: 2.4rem;
-        letter-spacing: 1px;
+      @keyframes pageIn {
+        from {
+          opacity: 0;
+          transform: translateY(12px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .title-block h1 {
+        margin: 0;
+        font-size: clamp(2rem, 4vw, 3.2rem);
+        letter-spacing: 0.05em;
         text-transform: uppercase;
       }
-      p {
-        margin: 0 0 24px;
+      .title-block p {
+        margin: 6px 0 0;
+        font-size: 1.05rem;
+        max-width: 560px;
       }
-      form {
+      .status-line {
         display: flex;
         gap: 12px;
-        margin-bottom: 24px;
+        align-items: center;
+        flex-wrap: wrap;
       }
-      input {
-        flex: 1;
-        padding: 12px 14px;
-        border: 2px solid #2a1f18;
-        font-size: 1rem;
+      .chip {
+        padding: 8px 14px;
+        border-radius: 999px;
+        border: 2px solid var(--ink);
+        font-weight: 600;
+        background: #fff;
+        box-shadow: 2px 2px 0 var(--ink);
       }
-      button {
-        padding: 12px 18px;
-        border: 2px solid #2a1f18;
-        background: #f6a15c;
-        font-weight: 700;
+      .chip.ok {
+        background: var(--mint);
+        border-color: var(--mint-deep);
+        color: var(--mint-deep);
+        box-shadow: 2px 2px 0 var(--mint-deep);
+      }
+      .chip.warn {
+        background: #ffd6c2;
+        border-color: var(--accent-deep);
+        color: var(--accent-deep);
+        box-shadow: 2px 2px 0 var(--accent-deep);
+      }
+      .panel-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 22px;
+      }
+      section {
+        background: rgba(255, 255, 255, 0.9);
+        border: 2px solid var(--ink);
+        box-shadow: 6px 6px 0 var(--ink);
+        padding: 20px;
+      }
+      section h2 {
+        margin: 0 0 14px;
         text-transform: uppercase;
-        cursor: pointer;
-        transition: transform 0.1s ease;
+        font-size: 1.1rem;
+        letter-spacing: 0.08em;
       }
-      button:active {
-        transform: translate(2px, 2px);
-      }
-      .status {
-        display: inline-block;
-        padding: 6px 10px;
-        border: 2px solid #2a1f18;
-        font-weight: 700;
-        margin-bottom: 16px;
-      }
-      ul {
-        list-style: none;
-        padding: 0;
-        margin: 0;
+      form {
         display: grid;
         gap: 12px;
       }
-      li {
-        padding: 12px 16px;
-        border: 2px dashed #2a1f18;
-        background: #fff7eb;
+      label {
+        font-size: 0.9rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 2px solid var(--ink);
+        font-size: 0.95rem;
+        background: #fffdf9;
+      }
+      textarea {
+        min-height: 92px;
+        resize: vertical;
+      }
+      .field-row {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      button {
+        border: 2px solid var(--ink);
+        padding: 10px 16px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        background: var(--accent);
+        color: #fff;
+        box-shadow: 3px 3px 0 var(--ink);
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+      }
+      button.secondary {
+        background: #fff;
+        color: var(--ink);
+      }
+      button.ghost {
+        background: transparent;
+        color: var(--ink);
+      }
+      button:active {
+        transform: translate(2px, 2px);
+        box-shadow: 1px 1px 0 var(--ink);
+      }
+      .list-wrap {
+        display: grid;
+        gap: 16px;
+      }
+      .auction-card {
+        background: #fff8ee;
+        border: 2px solid var(--ink);
+        padding: 16px;
+        display: grid;
+        gap: 12px;
+        animation: fadeUp 0.4s ease both;
+      }
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .auction-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .status-pill {
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 2px solid var(--ink);
+        font-weight: 700;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        background: #fff;
+      }
+      .status-pill.DRAFT {
+        background: #ffe8b8;
+      }
+      .status-pill.LIVE {
+        background: #b7f0d8;
+      }
+      .status-pill.FINISHED {
+        background: #d6d6f5;
+      }
+      .status-pill.DELETED {
+        background: #f6c0c0;
+      }
+      .meta {
+        display: grid;
+        gap: 4px;
+        font-size: 0.9rem;
+      }
+      .meta span {
+        font-weight: 600;
+      }
+      .empty {
+        padding: 14px;
+        border: 2px dashed var(--ink);
+        text-align: center;
+        background: #fff;
+      }
+      .helper {
+        font-size: 0.85rem;
+        color: #4b3a67;
+        margin: -4px 0 6px;
+      }
+      .split {
+        display: grid;
+        gap: 16px;
+      }
+      @media (min-width: 960px) {
+        .split {
+          grid-template-columns: 1.1fr 1.6fr;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="container">
-      <h1>Auction Service</h1>
-      <p>Quick test UI for the API.</p>
-      <div class="status" id="status">Checking...</div>
-      <form id="item-form">
-        <input id="item-input" placeholder="Item name" required />
-        <button type="submit">Create</button>
-      </form>
-      <ul id="items"></ul>
+    <div class="shell">
+      <header>
+        <div class="title-block">
+          <h1>Auction Control</h1>
+          <p>Visual console for creating, editing, and retiring auctions. Designed for rapid CRUD testing.</p>
+        </div>
+        <div class="status-line">
+          <div class="chip" id="health-chip">Checking API...</div>
+          <div class="chip" id="action-chip">Idle</div>
+        </div>
+      </header>
+
+      <div class="panel-grid">
+        <section>
+          <h2>Browse Auctions</h2>
+          <form id="filter-form">
+            <div class="field-row">
+              <div>
+                <label for="filter-status">Status</label>
+                <select id="filter-status">
+                  <option value="">All</option>
+                  <option value="DRAFT">DRAFT</option>
+                  <option value="LIVE">LIVE</option>
+                  <option value="FINISHED">FINISHED</option>
+                  <option value="DELETED">DELETED</option>
+                </select>
+              </div>
+              <div>
+                <label for="filter-limit">Limit</label>
+                <input id="filter-limit" type="number" min="1" max="100" value="30" />
+              </div>
+            </div>
+            <div class="actions">
+              <button type="submit">Refresh</button>
+              <button class="secondary" type="button" id="clear-selection">Clear Selection</button>
+            </div>
+          </form>
+        </section>
+
+        <section>
+          <h2>Create Auction</h2>
+          <p class="helper">Required fields are enforced by the API. Start time must be in the future.</p>
+          <form id="create-form">
+            <div>
+              <label for="create-creator">Creator ID (header)</label>
+              <input id="create-creator" type="number" min="1" placeholder="e.g. 101" required />
+            </div>
+            <div>
+              <label for="create-name">Auction Name (optional)</label>
+              <input id="create-name" type="text" placeholder="Evening bid rush" />
+            </div>
+            <div>
+              <label for="create-item">Item Name</label>
+              <input id="create-item" type="text" placeholder="Limited token drop" required />
+            </div>
+            <div class="field-row">
+              <div>
+                <label for="create-min-bid">Min Bid</label>
+                <input id="create-min-bid" type="number" min="0" step="0.01" required />
+              </div>
+              <div>
+                <label for="create-winners">Winners Total</label>
+                <input id="create-winners" type="number" min="1" required />
+              </div>
+              <div>
+                <label for="create-rounds">Rounds Count</label>
+                <input id="create-rounds" type="number" min="1" required />
+              </div>
+            </div>
+            <div class="field-row">
+              <div>
+                <label for="create-first-round">First Round Duration (ms)</label>
+                <input id="create-first-round" type="number" min="0" placeholder="optional" />
+              </div>
+              <div>
+                <label for="create-round-duration">Round Duration (ms)</label>
+                <input id="create-round-duration" type="number" min="1" required />
+              </div>
+            </div>
+            <div>
+              <label for="create-start">Start Date/Time</label>
+              <input id="create-start" type="datetime-local" required />
+            </div>
+            <div class="actions">
+              <button type="submit">Create Auction</button>
+              <button class="secondary" type="button" id="create-reset">Reset Form</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <div class="split">
+        <section>
+          <h2>Auctions Feed</h2>
+          <div class="list-wrap" id="auction-list"></div>
+        </section>
+
+        <section>
+          <h2>Update Selected</h2>
+          <div class="helper" id="selected-label">Pick an auction from the feed to edit.</div>
+          <form id="update-form">
+            <div>
+              <label for="update-id">Auction ID</label>
+              <input id="update-id" type="text" readonly />
+            </div>
+            <div>
+              <label for="update-creator">Creator ID (header)</label>
+              <input id="update-creator" type="number" min="1" placeholder="needed for updates" />
+            </div>
+            <div>
+              <label for="update-name">Auction Name</label>
+              <input id="update-name" type="text" />
+            </div>
+            <div>
+              <label for="update-item">Item Name</label>
+              <input id="update-item" type="text" />
+            </div>
+            <div class="field-row">
+              <div>
+                <label for="update-min-bid">Min Bid</label>
+                <input id="update-min-bid" type="number" min="0" step="0.01" />
+              </div>
+              <div>
+                <label for="update-winners">Winners Total</label>
+                <input id="update-winners" type="number" min="1" />
+              </div>
+              <div>
+                <label for="update-rounds">Rounds Count</label>
+                <input id="update-rounds" type="number" min="1" />
+              </div>
+            </div>
+            <div class="field-row">
+              <div>
+                <label for="update-first-round">First Round Duration (ms)</label>
+                <input id="update-first-round" type="number" min="0" placeholder="leave empty to clear" />
+              </div>
+              <div>
+                <label for="update-round-duration">Round Duration (ms)</label>
+                <input id="update-round-duration" type="number" min="1" />
+              </div>
+            </div>
+            <div>
+              <label for="update-start">Start Date/Time</label>
+              <input id="update-start" type="datetime-local" />
+            </div>
+            <div class="actions">
+              <button type="submit">Apply Update</button>
+              <button class="secondary" type="button" id="update-reset">Reset Selection</button>
+            </div>
+          </form>
+        </section>
+      </div>
     </div>
 
     <script>
-      const statusEl = document.getElementById("status");
-      const itemsEl = document.getElementById("items");
-      const form = document.getElementById("item-form");
-      const input = document.getElementById("item-input");
+      const healthChip = document.getElementById("health-chip");
+      const actionChip = document.getElementById("action-chip");
+      const listEl = document.getElementById("auction-list");
+      const filterForm = document.getElementById("filter-form");
+      const filterStatus = document.getElementById("filter-status");
+      const filterLimit = document.getElementById("filter-limit");
+      const clearSelectionBtn = document.getElementById("clear-selection");
+
+      const createForm = document.getElementById("create-form");
+      const createCreator = document.getElementById("create-creator");
+      const createName = document.getElementById("create-name");
+      const createItem = document.getElementById("create-item");
+      const createMinBid = document.getElementById("create-min-bid");
+      const createWinners = document.getElementById("create-winners");
+      const createRounds = document.getElementById("create-rounds");
+      const createFirstRound = document.getElementById("create-first-round");
+      const createRoundDuration = document.getElementById("create-round-duration");
+      const createStart = document.getElementById("create-start");
+      const createReset = document.getElementById("create-reset");
+
+      const updateForm = document.getElementById("update-form");
+      const updateId = document.getElementById("update-id");
+      const updateCreator = document.getElementById("update-creator");
+      const updateName = document.getElementById("update-name");
+      const updateItem = document.getElementById("update-item");
+      const updateMinBid = document.getElementById("update-min-bid");
+      const updateWinners = document.getElementById("update-winners");
+      const updateRounds = document.getElementById("update-rounds");
+      const updateFirstRound = document.getElementById("update-first-round");
+      const updateRoundDuration = document.getElementById("update-round-duration");
+      const updateStart = document.getElementById("update-start");
+      const updateReset = document.getElementById("update-reset");
+      const selectedLabel = document.getElementById("selected-label");
+
+      const state = {
+        auctions: [],
+        selected: null,
+      };
+
+      function setAction(message, tone = "neutral") {
+        actionChip.textContent = message;
+        actionChip.classList.remove("ok", "warn");
+        if (tone === "ok") actionChip.classList.add("ok");
+        if (tone === "warn") actionChip.classList.add("warn");
+      }
+
+      function formatLocalInput(date) {
+        const pad = (value) => String(value).padStart(2, "0");
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+          date.getHours(),
+        )}:${pad(date.getMinutes())}`;
+      }
+
+      function toLocalInput(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return formatLocalInput(date);
+      }
+
+      function toIsoFromInput(value) {
+        if (!value) return null;
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        return date.toISOString();
+      }
+
+      async function apiRequest(path, options = {}) {
+        const response = await fetch(path, options);
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch (error) {
+          payload = null;
+        }
+        if (!response.ok) {
+          const message = payload?.error || `Request failed (${response.status})`;
+          throw new Error(message);
+        }
+        return payload;
+      }
 
       async function loadHealth() {
-        const res = await fetch("/api/health");
-        const data = await res.json();
-        statusEl.textContent = data.ok ? "API healthy" : "API not ready";
-        statusEl.style.background = data.ok ? "#b6e7a7" : "#f2b8b5";
+        try {
+          const data = await apiRequest("http://localhost:3000/api/health");
+          const ok = data.ok === true;
+          healthChip.textContent = ok ? "API Healthy" : "API Not Ready";
+          healthChip.classList.toggle("ok", ok);
+          healthChip.classList.toggle("warn", !ok);
+        } catch (error) {
+          healthChip.textContent = "API Error";
+          healthChip.classList.add("warn");
+        }
       }
 
-      async function loadItems() {
-        const res = await fetch("/api/items");
-        const items = await res.json();
-        itemsEl.innerHTML = "";
-        items.forEach((item) => {
-          const li = document.createElement("li");
-          li.textContent = item.name;
-          itemsEl.appendChild(li);
+      function renderAuctions() {
+        listEl.innerHTML = "";
+        if (!state.auctions.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No auctions found.";
+          listEl.appendChild(empty);
+          return;
+        }
+
+        state.auctions.forEach((auction) => {
+          const card = document.createElement("div");
+          card.className = "auction-card";
+
+          const head = document.createElement("div");
+          head.className = "auction-head";
+          const title = document.createElement("div");
+          title.innerHTML = `<strong>${auction.name || "Untitled auction"}</strong>`;
+          const status = document.createElement("div");
+          status.className = `status-pill ${auction.status}`;
+          status.textContent = auction.status;
+          head.appendChild(title);
+          head.appendChild(status);
+
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.innerHTML = `
+            <div><span>ID:</span> ${auction._id}</div>
+            <div><span>Item:</span> ${auction.item_name}</div>
+            <div><span>Creator:</span> ${auction.creator_id}</div>
+            <div><span>Min bid:</span> ${auction.min_bid}</div>
+            <div><span>Rounds:</span> ${auction.rounds_count} | Winners: ${auction.winners_count_total}</div>
+            <div><span>Starts:</span> ${new Date(auction.start_datetime).toLocaleString()}</div>
+          `;
+
+          const actions = document.createElement("div");
+          actions.className = "actions";
+
+          const selectBtn = document.createElement("button");
+          selectBtn.type = "button";
+          selectBtn.className = "secondary";
+          selectBtn.textContent = "Edit";
+          selectBtn.addEventListener("click", () => selectAuction(auction));
+
+          const deleteBtn = document.createElement("button");
+          deleteBtn.type = "button";
+          deleteBtn.className = "ghost";
+          deleteBtn.textContent = "Delete";
+          deleteBtn.addEventListener("click", () => deleteAuction(auction));
+
+          actions.appendChild(selectBtn);
+          actions.appendChild(deleteBtn);
+
+          card.appendChild(head);
+          card.appendChild(meta);
+          card.appendChild(actions);
+          listEl.appendChild(card);
         });
       }
 
-      form.addEventListener("submit", async (event) => {
+      async function loadAuctions() {
+        setAction("Loading auctions...");
+        const params = new URLSearchParams();
+        const limit = Number(filterLimit.value || 30);
+        params.set("limit", Number.isFinite(limit) ? String(limit) : "30");
+        if (filterStatus.value) params.set("status", filterStatus.value);
+
+        try {
+          const data = await apiRequest(`http://localhost:3000/api/auctions?${params.toString()}`);
+          state.auctions = Array.isArray(data) ? data : [];
+          renderAuctions();
+          setAction("Auctions loaded", "ok");
+        } catch (error) {
+          setAction(error.message || "Failed to load", "warn");
+        }
+      }
+
+      function selectAuction(auction) {
+        state.selected = auction;
+        selectedLabel.textContent = `Editing auction ${auction._id}`;
+        updateId.value = auction._id || "";
+        updateName.value = auction.name || "";
+        updateItem.value = auction.item_name || "";
+        updateMinBid.value = auction.min_bid ?? "";
+        updateWinners.value = auction.winners_count_total ?? "";
+        updateRounds.value = auction.rounds_count ?? "";
+        updateFirstRound.value = auction.first_round_duration_ms ?? "";
+        updateRoundDuration.value = auction.round_duration_ms ?? "";
+        updateStart.value = toLocalInput(auction.start_datetime);
+      }
+
+      function resetSelection() {
+        state.selected = null;
+        selectedLabel.textContent = "Pick an auction from the feed to edit.";
+        updateForm.reset();
+        updateId.value = "";
+      }
+
+      function resetCreateForm() {
+        createForm.reset();
+        createStart.value = formatLocalInput(new Date(Date.now() + 60 * 60 * 1000));
+      }
+
+      async function createAuction(event) {
         event.preventDefault();
-        const name = input.value.trim();
-        if (!name) return;
-        await fetch("/api/items", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name }),
-        });
-        input.value = "";
-        await loadItems();
-      });
+        const creatorId = Number(createCreator.value);
+        const startIso = toIsoFromInput(createStart.value);
+        const payload = {
+          name: createName.value.trim() || null,
+          item_name: createItem.value.trim(),
+          min_bid: Number(createMinBid.value),
+          winners_count_total: Number(createWinners.value),
+          rounds_count: Number(createRounds.value),
+          first_round_duration_ms: createFirstRound.value ? Number(createFirstRound.value) : null,
+          round_duration_ms: Number(createRoundDuration.value),
+          start_datetime: startIso,
+        };
 
+        setAction("Creating auction...");
+        try {
+          await apiRequest("http://localhost:3000/api/auctions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Creator-Id": String(creatorId),
+            },
+            body: JSON.stringify(payload),
+          });
+          setAction("Auction created", "ok");
+          resetCreateForm();
+          await loadAuctions();
+        } catch (error) {
+          setAction(error.message || "Create failed", "warn");
+        }
+      }
+
+      async function updateAuction(event) {
+        event.preventDefault();
+        if (!updateId.value) {
+          setAction("Select an auction first", "warn");
+          return;
+        }
+        const creatorId = Number(updateCreator.value);
+        if (!Number.isFinite(creatorId)) {
+          setAction("Creator ID is required for update", "warn");
+          return;
+        }
+
+        const startIso = toIsoFromInput(updateStart.value);
+        const payload = {
+          name: updateName.value.trim() || null,
+          item_name: updateItem.value.trim(),
+          min_bid: Number(updateMinBid.value),
+          winners_count_total: Number(updateWinners.value),
+          rounds_count: Number(updateRounds.value),
+          first_round_duration_ms:
+            updateFirstRound.value === "" ? null : Number(updateFirstRound.value),
+          round_duration_ms: Number(updateRoundDuration.value),
+          start_datetime: startIso,
+        };
+
+        setAction("Updating auction...");
+        try {
+          await apiRequest(`http://localhost:3000/api/auctions/${updateId.value}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Creator-Id": String(creatorId),
+            },
+            body: JSON.stringify(payload),
+          });
+          setAction("Auction updated", "ok");
+          await loadAuctions();
+        } catch (error) {
+          setAction(error.message || "Update failed", "warn");
+        }
+      }
+
+      async function deleteAuction(auction) {
+        if (!auction?._id) return;
+        setAction("Deleting auction...");
+        try {
+          await apiRequest(`http://localhost:3000/api/auctions/${auction._id}`, {
+            method: "DELETE",
+          });
+          setAction("Auction deleted", "ok");
+          await loadAuctions();
+        } catch (error) {
+          setAction(error.message || "Delete failed", "warn");
+        }
+      }
+
+      filterForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        loadAuctions();
+      });
+      createForm.addEventListener("submit", createAuction);
+      updateForm.addEventListener("submit", updateAuction);
+      createReset.addEventListener("click", resetCreateForm);
+      updateReset.addEventListener("click", resetSelection);
+      clearSelectionBtn.addEventListener("click", resetSelection);
+
+      resetCreateForm();
       loadHealth();
-      loadItems();
+      loadAuctions();
     </script>
   </body>
 </html>

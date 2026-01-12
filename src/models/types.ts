@@ -1,6 +1,6 @@
 import { ObjectId } from "mongoose";
 
-export type AutcionStatus = "DRAFT" | "LIVE" | "FINISHED" | "DELETED";
+export type AutcionStatus = "DRAFT" | "RELEASED" | "LIVE" | "FINISHED" | "DELETED";
 export type RoundStatus = "UPCOMING" | "ACTIVE" | "SETTLING" | "FINISHED";
 export type DeliveryStatus = "PENDING" | "DELIVERED" | "FAILED";
 

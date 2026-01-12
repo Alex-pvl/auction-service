@@ -5,6 +5,7 @@ import {
   createAuction,
   getAuctionById,
   listAuctions,
+  releaseAuction,
   softDeleteAuction,
   updateAuction,
 } from "../services/auctions.js";
@@ -57,8 +58,16 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     }
 
     const auction = await getAuctionById(id);
-    if (!auction) {
+    if (!auction || auction.status === "DELETED") {
       res.status(404).json({ error: "not found" });
+      return;
+    }
+
+    const creatorHeader = req.get("X-Creator-Id");
+    const creatorId = creatorHeader !== undefined ? Number(creatorHeader) : NaN;
+
+    if (auction.status === "DRAFT" && Number.isFinite(creatorId) && creatorId !== auction.creator_id) {
+      res.status(403).json({ error: "creator_id mismatch" });
       return;
     }
 
@@ -68,10 +77,11 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
   app.post("/api/auctions", async (req, res) => {
     const body = req.body ?? {};
     const errors: string[] = [];
+    const creatorHeader = req.get("X-Creator-Id");
+    const creatorId = creatorHeader !== undefined ? Number(creatorHeader) : NaN;
 
     const nameRaw = body.name;
     const name = nameRaw === undefined || nameRaw === null ? null : String(nameRaw).trim() || null;
-    const creatorId = Number(body.creator_id);
     const itemName = String(body.item_name ?? "").trim();
     const minBid = Number(body.min_bid);
     const winnersCountTotal = Number(body.winners_count_total);
@@ -80,7 +90,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     const roundDurationMs = Number(body.round_duration_ms);
     const startDateTime = toDate(body.start_datetime);
 
-    if (!Number.isFinite(creatorId)) errors.push("creator_id");
+    if (!Number.isFinite(creatorId)) errors.push("missing X-Creator-Id header");
     if (!itemName) errors.push("item_name");
     if (!Number.isFinite(minBid)) errors.push("min_bid");
     if (!Number.isFinite(winnersCountTotal)) errors.push("winners_count_total");
@@ -253,6 +263,43 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     }
 
     const auction = await softDeleteAuction(id);
+    if (!auction) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+
+    res.json(auction);
+  });
+
+  app.post("/api/auctions/:id/release", async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid id" });
+      return;
+    }
+
+    const creatorHeader = req.get("X-Creator-Id");
+    const creatorId = creatorHeader !== undefined ? Number(creatorHeader) : NaN;
+    if (!Number.isFinite(creatorId)) {
+      res.status(400).json({ error: "creator_id header is required" });
+      return;
+    }
+
+    const existingAuction = await getAuctionById(id);
+    if (!existingAuction) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    if (existingAuction.creator_id !== creatorId) {
+      res.status(403).json({ error: "creator_id mismatch" });
+      return;
+    }
+    if (existingAuction.status !== "DRAFT") {
+      res.status(409).json({ error: "only DRAFT auctions can be released" });
+      return;
+    }
+
+    const auction = await releaseAuction(id);
     if (!auction) {
       res.status(404).json({ error: "not found" });
       return;
