@@ -34,6 +34,7 @@ export interface Bid {
     created_at: Date;
     updated_at: Date;
     idempotency_key: string;
+    is_top3_sniping_bid?: boolean;
 }
 
 export interface Round {
@@ -42,6 +43,7 @@ export interface Round {
     idx: number;
     started_at: Date;
     ended_at: Date;
+    extended_until?: Date | null;
 }
 
 export interface User {

@@ -15,8 +15,19 @@ import {
   ensureUserByTgId,
   getUserByTgId,
 } from "../services/users.js";
+import {
+  createOrUpdateBid,
+  addToBid,
+  getUserBid,
+  getUserPlace,
+  getTopBids,
+  getAllBidsInRound,
+} from "../services/bids.js";
+import { handleTop3Bid } from "../services/auction-lifecycle.js";
+import { Round } from "../storage/mongo.js";
+import { broadcastAuctionUpdate } from "../services/websocket.js";
 
-const auctionStatuses = new Set(["DRAFT", "LIVE", "FINISHED", "DELETED"]);
+const auctionStatuses = new Set(["DRAFT", "RELEASED", "LIVE", "FINISHED", "DELETED"]);
 
 function isValidDate(value: unknown) {
   const date = value instanceof Date ? value : new Date(String(value ?? ""));
@@ -143,6 +154,8 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     const creatorUser = await requireUserByTgId(creatorId!, res);
     if (!creatorUser) return;
 
+    const winnersPerRound = Math.round(winnersCountTotal / roundsCount);
+    
     const auction = await createAuction({
       name,
       creator_id: creatorId!,
@@ -150,7 +163,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
       min_bid: minBid,
       winners_count_total: winnersCountTotal,
       rounds_count: roundsCount,
-      winners_per_round: winnersCountTotal / roundsCount,
+      winners_per_round: winnersPerRound,
       first_round_duration_ms: firstRoundDurationMs,
       round_duration_ms: roundDurationMs,
       status: "DRAFT",
@@ -227,15 +240,32 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
       if (Number.isFinite(value)) updates.min_bid = value;
       else errors.push("min_bid");
     }
-    if ("winners_count_total" in body) {
-      const value = Number(body.winners_count_total);
-      if (Number.isFinite(value)) updates.winners_count_total = value;
-      else errors.push("winners_count_total");
-    }
-    if ("rounds_count" in body) {
-      const value = Number(body.rounds_count);
-      if (Number.isFinite(value)) updates.rounds_count = value;
-      else errors.push("rounds_count");
+    if ("winners_count_total" in body || "rounds_count" in body) {
+      
+      const newWinnersTotal = "winners_count_total" in body 
+        ? Number(body.winners_count_total) 
+        : existingAuction.winners_count_total;
+      const newRoundsCount = "rounds_count" in body 
+        ? Number(body.rounds_count) 
+        : existingAuction.rounds_count;
+      
+      if (Number.isFinite(newWinnersTotal) && Number.isFinite(newRoundsCount) && newRoundsCount > 0) {
+        if ("winners_count_total" in body) {
+          updates.winners_count_total = newWinnersTotal;
+        }
+        if ("rounds_count" in body) {
+          updates.rounds_count = newRoundsCount;
+        }
+        
+        updates.winners_per_round = Math.round(newWinnersTotal / newRoundsCount);
+      } else {
+        if ("winners_count_total" in body && !Number.isFinite(newWinnersTotal)) {
+          errors.push("winners_count_total");
+        }
+        if ("rounds_count" in body && !Number.isFinite(newRoundsCount)) {
+          errors.push("rounds_count");
+        }
+      }
     }
     if ("first_round_duration_ms" in body) {
       const value = parseOptionalNumber(body.first_round_duration_ms);
@@ -410,5 +440,227 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
 
     const updated = await adjustUserBalanceByTgId(tgId, -amount);
     res.json(updated);
+  });
+
+  app.post("/api/auctions/:id/bids", async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const userHeader = req.get("X-User-Id");
+    const userId = userHeader ? parseTgId(userHeader) : null;
+    if (!userId) {
+      res.status(400).json({ error: "X-User-Id header is required" });
+      return;
+    }
+
+    const user = await requireUserByTgId(userId, res);
+    if (!user) return;
+
+    const auction = await getAuctionById(id);
+    if (!auction) {
+      res.status(404).json({ error: "auction not found" });
+      return;
+    }
+
+    if (auction.status !== "LIVE") {
+      res.status(409).json({ error: "auction is not live" });
+      return;
+    }
+
+    const body = req.body ?? {};
+    const amount = Number(body.amount);
+    const { getMinBidForRound } = await import("../services/bids.js");
+    const minBidForRound = await getMinBidForRound(id, auction.current_round_idx);
+    const idempotencyKey = String(body.idempotency_key ?? "").trim();
+    const isAddToExisting = Boolean(body.add_to_existing);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status(400).json({ error: "amount must be positive" });
+      return;
+    }
+
+    if (!idempotencyKey) {
+      res.status(400).json({ error: "idempotency_key is required" });
+      return;
+    }
+    
+    if (user.balance < amount) {
+      res.status(409).json({ error: "insufficient balance" });
+      return;
+    }
+
+    const currentRound = await Round.findOne({
+      auction_id: id,
+      idx: auction.current_round_idx,
+    }).lean();
+
+    if (!currentRound) {
+      res.status(404).json({ error: "round not found" });
+      return;
+    }
+
+    const roundId = currentRound._id.toString();
+    const now = Date.now();
+    const roundEndTime = currentRound.extended_until
+      ? currentRound.extended_until.getTime()
+      : currentRound.ended_at.getTime();
+    
+    if (now >= roundEndTime) {
+      res.status(409).json({ error: "round has ended" });
+      return;
+    }
+
+    try {
+      const existingBid = await getUserBid(id, roundId, user._id.toString());
+      if (existingBid) {
+        const userPlace = await getUserPlace(id, roundId, user._id.toString());
+        const winnersPerRound = Math.floor(auction.winners_per_round);
+        const isFirstRound = auction.current_round_idx === 0;
+        const isTop3 = userPlace !== null && userPlace <= 3;
+        const canUpdateInFirstRound = isFirstRound && isTop3;
+        
+        if (userPlace !== null && userPlace <= winnersPerRound && !canUpdateInFirstRound) {
+          res.status(409).json({ 
+            error: "cannot update bid: you are already in the winning top",
+            place: userPlace,
+            winners_per_round: winnersPerRound
+          });
+          return;
+        }
+      }
+      
+      let bid;
+      let isBidUpdate = false;
+      if (isAddToExisting) {
+        if (!existingBid) {
+          res.status(404).json({ error: "no existing bid to add to" });
+          return;
+        }
+        
+        bid = await addToBid(id, roundId, user._id.toString(), amount, idempotencyKey);
+        isBidUpdate = true;
+
+        await adjustUserBalanceByTgId(userId, -amount);
+      } else {
+        
+        if (existingBid) {
+          bid = await addToBid(id, roundId, user._id.toString(), amount, idempotencyKey);
+          isBidUpdate = true;
+        } else {
+          
+          if (amount < minBidForRound) {
+            res.status(400).json({ error: `amount must be at least ${minBidForRound} (min bid for round ${auction.current_round_idx + 1})` });
+            return;
+          }
+          
+          bid = await createOrUpdateBid({
+            auction_id: id,
+            round_id: roundId,
+            user_id: user._id.toString(),
+            amount,
+            idempotency_key: idempotencyKey,
+          });
+          isBidUpdate = false; 
+        }
+        
+        await adjustUserBalanceByTgId(userId, -amount);
+      }
+      
+      if (auction.current_round_idx === 0 && isBidUpdate) {
+        const userPlace = await getUserPlace(id, roundId, user._id.toString());
+        const isTop3 = userPlace !== null && userPlace <= 3;
+        if (isTop3) {
+          await handleTop3Bid(id, roundId, user._id.toString(), true);
+        }
+      }
+
+      const place = await getUserPlace(id, roundId, user._id.toString());
+      
+      broadcastAuctionUpdate(id);
+
+      res.json({
+        bid,
+        place,
+        remaining_balance: (await getUserByTgId(userId))?.balance ?? 0,
+      });
+    } catch (error: any) {
+      console.error("Error creating bid:", error);
+      res.status(500).json({ error: error.message || "internal server error" });
+    }
+  });
+
+  app.get("/api/auctions/:id/rounds/:roundIdx/bids", async (req, res) => {
+    const { id, roundIdx } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const roundIdxNum = Number(roundIdx);
+    if (!Number.isFinite(roundIdxNum) || roundIdxNum < 0) {
+      res.status(400).json({ error: "invalid round index" });
+      return;
+    }
+
+    const auction = await getAuctionById(id);
+    if (!auction) {
+      res.status(404).json({ error: "auction not found" });
+      return;
+    }
+
+    const round = await Round.findOne({
+      auction_id: id,
+      idx: roundIdxNum,
+    }).lean();
+
+    if (!round) {
+      res.status(404).json({ error: "round not found" });
+      return;
+    }
+
+    const topBids = await getTopBids(id, round._id.toString(), 10);
+    res.json(topBids);
+  });
+
+  app.get("/api/auctions/:id/my-bid", async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const userHeader = req.get("X-User-Id");
+    const userId = userHeader ? parseTgId(userHeader) : null;
+    if (!userId) {
+      res.status(400).json({ error: "X-User-Id header is required" });
+      return;
+    }
+
+    const user = await requireUserByTgId(userId, res);
+    if (!user) return;
+
+    const auction = await getAuctionById(id);
+    if (!auction) {
+      res.status(404).json({ error: "auction not found" });
+      return;
+    }
+
+    const currentRound = await Round.findOne({
+      auction_id: id,
+      idx: auction.current_round_idx,
+    }).lean();
+
+    if (!currentRound) {
+      res.status(404).json({ error: "round not found" });
+      return;
+    }
+
+    const bid = await getUserBid(id, currentRound._id.toString(), user._id.toString());
+    const place = bid ? await getUserPlace(id, currentRound._id.toString(), user._id.toString()) : null;
+
+    res.json({ bid, place });
   });
 }

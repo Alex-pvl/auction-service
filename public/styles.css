@@ -1,0 +1,488 @@
+:root {
+  color-scheme: light;
+  font-family: "Space Grotesk", "Futura", "Trebuchet MS", sans-serif;
+  --ink: #1d1a17;
+  --paper: #f7f1e6;
+  --glow: #f2d6a2;
+  --accent: #f2785c;
+  --accent-deep: #b74f39;
+  --mint: #9ad1c8;
+  --mint-deep: #2f6d67;
+  --violet: #4b3a67;
+  --shadow: rgba(29, 26, 23, 0.22);
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 20% 10%, rgba(242, 214, 162, 0.45), transparent 55%),
+    radial-gradient(circle at 85% 0%, rgba(154, 209, 200, 0.5), transparent 55%),
+    linear-gradient(120deg, #f9efe0, #f3e3cb 55%, #edd8bc);
+  padding: 0;
+}
+.nav {
+  background: rgba(255, 255, 255, 0.95);
+  border-bottom: 2px solid var(--ink);
+  padding: 16px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 8px var(--shadow);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.nav-links {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.nav-link {
+  padding: 8px 16px;
+  text-decoration: none;
+  color: var(--ink);
+  font-weight: 600;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+.nav-link:hover {
+  background: var(--glow);
+  border-color: var(--ink);
+}
+.nav-link.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent-deep);
+}
+.user-info {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--mint);
+  border: 2px solid var(--mint-deep);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.user-info span {
+  font-weight: 600;
+}
+.page {
+  display: none;
+  padding: 32px 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  animation: fadeIn 0.3s ease;
+}
+.page.active {
+  display: block;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.container {
+  background: rgba(255, 255, 255, 0.9);
+  border: 2px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  padding: 32px;
+  border-radius: 12px;
+  max-width: 700px;
+  margin: 0 auto;
+}
+@media (max-width: 768px) {
+  .container {
+    padding: 20px;
+    max-width: 100%;
+  }
+  .field-row {
+    grid-template-columns: 1fr !important;
+  }
+  h1 {
+    font-size: 1.8rem;
+  }
+  h2 {
+    font-size: 1.2rem;
+  }
+  label {
+    font-size: 0.85rem;
+  }
+}
+h1 {
+  margin: 0 0 24px;
+  font-size: 2.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+h2 {
+  margin: 0 0 20px;
+  font-size: 1.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+form {
+  display: grid;
+  gap: 20px;
+}
+label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: block;
+  margin-bottom: 8px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+input,
+select,
+textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--ink);
+  font-size: 1rem;
+  background: #fffdf9;
+  font-family: inherit;
+  min-width: 0; /* Позволяет полям сжиматься */
+  box-sizing: border-box;
+}
+input[type="datetime-local"],
+input[type="date"],
+input[type="time"] {
+  min-width: 200px;
+  font-size: 0.95rem;
+}
+/* Принудительно используем 24-часовой формат для времени */
+input[type="time"] {
+  font-variant-numeric: tabular-nums;
+  /* Убеждаемся, что используется 24-часовой формат */
+  direction: ltr;
+}
+/* Скрываем AM/PM индикаторы, если они появляются */
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0);
+}
+/* Для Firefox и других браузеров */
+input[type="time"]::-moz-calendar-picker-indicator {
+  filter: invert(0);
+}
+input[type="number"] {
+  min-width: 120px;
+}
+textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+.field-row {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.field-row.full-width {
+  grid-template-columns: 1fr;
+}
+button {
+  border: 2px solid var(--ink);
+  padding: 12px 24px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: inherit;
+}
+button:hover {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+button:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+button.secondary {
+  background: #fff;
+  color: var(--ink);
+}
+.error {
+  padding: 12px 16px;
+  background: #ffe8e8;
+  border: 2px solid var(--accent-deep);
+  border-radius: 8px;
+  color: var(--accent-deep);
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+.success {
+  padding: 12px 16px;
+  background: var(--mint);
+  border: 2px solid var(--mint-deep);
+  border-radius: 8px;
+  color: var(--mint-deep);
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+.helper {
+  font-size: 0.85rem;
+  color: #666;
+  margin-top: 4px;
+  margin-bottom: 12px;
+  display: block;
+}
+
+/* Live Auction Styles */
+.live-container {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+.live-header {
+  background: linear-gradient(135deg, #fff8ee 0%, #ffe8b8 100%);
+  border: 3px solid var(--accent);
+  box-shadow: 8px 8px 0 var(--accent);
+  padding: 24px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+}
+.ws-status {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+.ws-status.connected {
+  background: var(--mint-deep);
+  box-shadow: 0 0 8px var(--mint);
+}
+.ws-status.disconnected {
+  background: var(--accent-deep);
+}
+.timer {
+  font-size: 3rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 32px;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  margin: 24px 0;
+  font-variant-numeric: tabular-nums;
+}
+.timer.warning {
+  background: #ffe8b8;
+  border-color: var(--accent);
+  animation: pulse 1s ease infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+.round-info {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  margin: 16px 0;
+}
+.round-info strong {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.top-bids {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0;
+}
+.bid-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+}
+.bid-item.top3 {
+  background: var(--mint);
+  border-color: var(--mint-deep);
+}
+.bid-item.user-bid {
+  background: var(--glow);
+  border-color: var(--accent);
+  font-weight: 700;
+}
+.bid-place {
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: var(--violet);
+}
+.bid-amount {
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+.bid-form-section {
+  background: #fffaf3;
+  border: 2px dashed var(--ink);
+  padding: 24px;
+  margin-top: 24px;
+  border-radius: 8px;
+}
+.empty {
+  padding: 24px;
+  border: 2px dashed var(--ink);
+  text-align: center;
+  background: #fff;
+  border-radius: 8px;
+}
+.watch-form {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.watch-form input {
+  flex: 1;
+}
+
+/* Auctions Management Styles */
+.auctions-filters {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.filter-btn {
+  padding: 8px 16px;
+  border: 2px solid var(--ink);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.filter-btn:hover {
+  background: var(--glow);
+}
+.filter-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent-deep);
+}
+.auctions-list {
+  display: grid;
+  gap: 16px;
+}
+.auction-card {
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.auction-card:hover {
+  box-shadow: 4px 4px 0 var(--ink);
+  transform: translate(-2px, -2px);
+}
+.auction-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 12px;
+}
+.auction-card-title {
+  font-weight: 700;
+  font-size: 1.2rem;
+  margin: 0;
+}
+.auction-card-status {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.auction-card-status.DRAFT {
+  background: #ffe8b8;
+  color: #8b6914;
+}
+.auction-card-status.RELEASED {
+  background: var(--mint);
+  color: var(--mint-deep);
+}
+.auction-card-status.LIVE {
+  background: #ff6b6b;
+  color: #fff;
+}
+.auction-card-status.FINISHED {
+  background: #e0e0e0;
+  color: #666;
+}
+.auction-card-info {
+  display: grid;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #666;
+}
+.auction-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.auction-card-actions button {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  flex: 1;
+  min-width: 80px;
+}
+.back-btn {
+  margin-bottom: 20px;
+  padding: 8px 16px;
+  background: #fff;
+  color: var(--ink);
+}
+.auction-detail {
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  padding: 24px;
+  margin-top: 24px;
+}
+.auction-detail-section {
+  margin-bottom: 24px;
+}
+.auction-detail-section h3 {
+  margin: 0 0 12px;
+  font-size: 1.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.auction-detail-info {
+  display: grid;
+  gap: 8px;
+}
+.auction-detail-info strong {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

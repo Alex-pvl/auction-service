@@ -4,7 +4,10 @@ import mongoose from "mongoose";
 import { createClient } from "redis";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createServer } from "node:http";
 import { registerApiRoutes } from "./routes/api.js";
+import { startAuctionLifecycleManager } from "./services/auction-lifecycle.js";
+import { createWebSocketServer } from "./services/websocket.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const MONGO_URL = process.env.MONGO_URL ?? "mongodb://localhost:27017/auction_service";
@@ -32,9 +35,12 @@ app.get("/", (_req, res) => {
 async function start() {
   await mongoose.connect(MONGO_URL);
   await redis.connect();
-
-  app.listen(PORT, () => {
+  const httpServer = createServer(app);
+  createWebSocketServer(httpServer);
+  await startAuctionLifecycleManager(redis);
+  httpServer.listen(PORT, () => {
     console.log(`server listening on ${PORT}`);
+    console.log(`WebSocket server available at ws://localhost:${PORT}/ws`);
   });
 }
 

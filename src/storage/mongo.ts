@@ -7,7 +7,7 @@ import type {
   Round as RoundType,
 } from "../models/types.js";
 
-const auctionStatuses = ["DRAFT", "LIVE", "FINISHED", "DELETED"] as const;
+const auctionStatuses = ["DRAFT", "RELEASED", "LIVE", "FINISHED", "DELETED"] as const;
 const deliveryStatuses = ["PENDING", "DELIVERED", "FAILED"] as const;
 
 const auctionSchema = new mongoose.Schema<AuctionType>(
@@ -38,6 +38,7 @@ const bidSchema = new mongoose.Schema<BidType>(
     amount: { type: Number, required: true },
     place_id: { type: Number, required: true },
     idempotency_key: { type: String, required: true },
+    is_top3_sniping_bid: { type: Boolean, default: false },
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
@@ -47,6 +48,7 @@ const roundSchema = new mongoose.Schema<RoundType>({
   idx: { type: Number, required: true },
   started_at: { type: Date, required: true },
   ended_at: { type: Date, required: true },
+  extended_until: { type: Date, default: null },
 });
 
 const userSchema = new mongoose.Schema<UserType>({

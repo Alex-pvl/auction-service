@@ -1,916 +1,273 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Auction Service Console</title>
-    <style>
-      :root {
-        color-scheme: light;
-        font-family: "Space Grotesk", "Futura", "Trebuchet MS", sans-serif;
-        --ink: #1d1a17;
-        --paper: #f7f1e6;
-        --glow: #f2d6a2;
-        --accent: #f2785c;
-        --accent-deep: #b74f39;
-        --mint: #9ad1c8;
-        --mint-deep: #2f6d67;
-        --violet: #4b3a67;
-        --shadow: rgba(29, 26, 23, 0.22);
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        color: var(--ink);
-        background:
-          radial-gradient(circle at 20% 10%, rgba(242, 214, 162, 0.45), transparent 55%),
-          radial-gradient(circle at 85% 0%, rgba(154, 209, 200, 0.5), transparent 55%),
-          linear-gradient(120deg, #f9efe0, #f3e3cb 55%, #edd8bc);
-        padding: 32px 18px 64px;
-      }
-      .shell {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: grid;
-        gap: 24px;
-        animation: pageIn 0.8s ease both;
-      }
-      @keyframes pageIn {
-        from {
-          opacity: 0;
-          transform: translateY(12px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-      header {
-        display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        gap: 20px;
-        flex-wrap: wrap;
-      }
-      .title-block h1 {
-        margin: 0;
-        font-size: clamp(2rem, 4vw, 3.2rem);
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-      }
-      .title-block p {
-        margin: 6px 0 0;
-        font-size: 1.05rem;
-        max-width: 560px;
-      }
-      .status-line {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      .chip {
-        padding: 8px 14px;
-        border-radius: 999px;
-        border: 2px solid var(--ink);
-        font-weight: 600;
-        background: #fff;
-        box-shadow: 2px 2px 0 var(--ink);
-      }
-      .chip.ok {
-        background: var(--mint);
-        border-color: var(--mint-deep);
-        color: var(--mint-deep);
-        box-shadow: 2px 2px 0 var(--mint-deep);
-      }
-      .chip.warn {
-        background: #ffd6c2;
-        border-color: var(--accent-deep);
-        color: var(--accent-deep);
-        box-shadow: 2px 2px 0 var(--accent-deep);
-      }
-      .panel-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 22px;
-      }
-      section {
-        background: rgba(255, 255, 255, 0.9);
-        border: 2px solid var(--ink);
-        box-shadow: 6px 6px 0 var(--ink);
-        padding: 20px;
-      }
-      section.browse-compact {
-        padding: 14px;
-      }
-      section.browse-compact h2 {
-        font-size: 0.95rem;
-        margin-bottom: 10px;
-      }
-      section.browse-compact form {
-        gap: 8px;
-      }
-      section h2 {
-        margin: 0 0 14px;
-        text-transform: uppercase;
-        font-size: 1.1rem;
-        letter-spacing: 0.08em;
-      }
-      form {
-        display: grid;
-        gap: 12px;
-      }
-      label {
-        font-size: 0.9rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-      input,
-      select,
-      textarea {
-        width: 100%;
-        padding: 10px 12px;
-        border-radius: 8px;
-        border: 2px solid var(--ink);
-        font-size: 0.95rem;
-        background: #fffdf9;
-      }
-      textarea {
-        min-height: 92px;
-        resize: vertical;
-      }
-      .field-row {
-        display: grid;
-        gap: 12px;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      }
-      .actions {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-      }
-      button {
-        border: 2px solid var(--ink);
-        padding: 10px 16px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        cursor: pointer;
-        background: var(--accent);
-        color: #fff;
-        box-shadow: 3px 3px 0 var(--ink);
-        transition: transform 0.12s ease, box-shadow 0.12s ease;
-      }
-      button.secondary {
-        background: #fff;
-        color: var(--ink);
-      }
-      button.ghost {
-        background: transparent;
-        color: var(--ink);
-      }
-      button:active {
-        transform: translate(2px, 2px);
-        box-shadow: 1px 1px 0 var(--ink);
-      }
-      .list-wrap {
-        display: grid;
-        gap: 16px;
-      }
-      .user-panel {
-        display: grid;
-        gap: 12px;
-        padding: 14px;
-        border: 2px dashed var(--ink);
-        background: #fffaf3;
-      }
-      .user-panel strong {
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-      .user-stats {
-        display: grid;
-        gap: 4px;
-        font-size: 0.9rem;
-      }
-      .user-stats span {
-        font-weight: 600;
-      }
-      .auction-card {
-        background: #fff8ee;
-        border: 2px solid var(--ink);
-        padding: 16px;
-        display: grid;
-        gap: 12px;
-        animation: fadeUp 0.4s ease both;
-      }
-      @keyframes fadeUp {
-        from {
-          opacity: 0;
-          transform: translateY(8px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-      .auction-head {
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-      .status-pill {
-        padding: 4px 10px;
-        border-radius: 999px;
-        border: 2px solid var(--ink);
-        font-weight: 700;
-        text-transform: uppercase;
-        font-size: 0.75rem;
-        background: #fff;
-      }
-      .status-pill.DRAFT {
-        background: #ffe8b8;
-      }
-      .status-pill.LIVE {
-        background: #b7f0d8;
-      }
-      .status-pill.FINISHED {
-        background: #d6d6f5;
-      }
-      .status-pill.DELETED {
-        background: #f6c0c0;
-      }
-      .meta {
-        display: grid;
-        gap: 4px;
-        font-size: 0.9rem;
-      }
-      .meta span {
-        font-weight: 600;
-      }
-      .empty {
-        padding: 14px;
-        border: 2px dashed var(--ink);
-        text-align: center;
-        background: #fff;
-      }
-      .helper {
-        font-size: 0.85rem;
-        color: #4b3a67;
-        margin: -4px 0 6px;
-      }
-      .split {
-        display: grid;
-        gap: 16px;
-      }
-      @media (min-width: 960px) {
-        .split {
-          grid-template-columns: 1.1fr 1.6fr;
-        }
-      }
-    </style>
+    <title>Auction Service</title>
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="shell">
-      <header>
-        <div class="title-block">
-          <h1>Auction Control</h1>
-          <p>Visual console for creating, editing, and retiring auctions. Designed for rapid CRUD testing.</p>
-        </div>
-        <div class="status-line">
-          <div class="chip" id="health-chip">Checking API...</div>
-          <div class="chip" id="action-chip">Idle</div>
-        </div>
-      </header>
-
-      <div class="panel-grid">
-        <section class="browse-compact">
-          <h2>Browse Auctions</h2>
-          <form id="filter-form">
-            <div class="field-row">
-              <div>
-                <label for="filter-status">Status</label>
-                <select id="filter-status">
-                  <option value="">All</option>
-                  <option value="DRAFT">DRAFT</option>
-                  <option value="LIVE">LIVE</option>
-                  <option value="FINISHED">FINISHED</option>
-                  <option value="DELETED">DELETED</option>
-                </select>
-              </div>
-              <div>
-                <label for="filter-limit">Limit</label>
-                <input id="filter-limit" type="number" min="1" max="100" value="30" />
-              </div>
-            </div>
-            <div class="actions">
-              <button type="submit">Refresh</button>
-              <button class="secondary" type="button" id="clear-selection">Clear Selection</button>
-            </div>
-          </form>
-        </section>
-
-        <section>
-          <h2>Create Auction</h2>
-          <p class="helper">Required fields are enforced by the API. Start time must be in the future.</p>
-          <form id="create-form">
-            <div>
-              <label for="create-creator">User ID (tg_id)</label>
-              <input id="create-creator" type="number" min="1" step="1" placeholder="e.g. 123456" required />
-            </div>
-            <div>
-              <label for="create-name">Auction Name (optional)</label>
-              <input id="create-name" type="text" placeholder="Evening bid rush" />
-            </div>
-            <div>
-              <label for="create-item">Item Name</label>
-              <input id="create-item" type="text" placeholder="Limited token drop" required />
-            </div>
-            <div class="field-row">
-              <div>
-                <label for="create-min-bid">Min Bid</label>
-                <input id="create-min-bid" type="number" min="0" step="0.01" required />
-              </div>
-              <div>
-                <label for="create-winners">Winners Total</label>
-                <input id="create-winners" type="number" min="1" required />
-              </div>
-              <div>
-                <label for="create-rounds">Rounds Count</label>
-                <input id="create-rounds" type="number" min="1" required />
-              </div>
-            </div>
-            <div class="field-row">
-              <div>
-                <label for="create-first-round">First Round Duration (ms)</label>
-                <input id="create-first-round" type="number" min="0" placeholder="optional" />
-              </div>
-              <div>
-                <label for="create-round-duration">Round Duration (ms)</label>
-                <input id="create-round-duration" type="number" min="1" required />
-              </div>
-            </div>
-            <div>
-              <label for="create-start">Start Date/Time</label>
-              <input id="create-start" type="datetime-local" required />
-            </div>
-            <div class="actions">
-              <button type="submit">Create Auction</button>
-              <button class="secondary" type="button" id="create-reset">Reset Form</button>
-            </div>
-          </form>
-        </section>
+    <nav class="nav">
+      <div class="nav-links">
+        <a href="#auth" class="nav-link" data-page="auth">Auth</a>
+        <a href="#create" class="nav-link" data-page="create">Create Auction</a>
+        <a href="#auctions" class="nav-link" data-page="auctions">My Auctions</a>
+        <a href="#live" class="nav-link" data-page="live">Live Auction</a>
       </div>
+      <div class="user-info" id="user-info" style="display: none;">
+        <span>User:</span>
+        <span id="user-name">-</span>
+        <span>|</span>
+        <span>Balance:</span>
+        <span id="user-balance">-</span>
+      </div>
+    </nav>
 
-      <div class="panel-grid">
-        <section>
-          <h2>User Access</h2>
-          <div class="user-panel">
-            <strong>Current user</strong>
-            <div class="user-stats" id="user-stats">
-              <div><span>Status:</span> Guest</div>
-              <div><span>tg_id:</span> -</div>
-              <div><span>Username:</span> -</div>
-              <div><span>Balance:</span> -</div>
-            </div>
+    <!-- Auth Page -->
+    <div id="page-auth" class="page">
+      <div class="container">
+        <h1>Authorization</h1>
+        <div id="auth-error" class="error" style="display: none;"></div>
+        <div id="auth-success" class="success" style="display: none;"></div>
+        <form id="auth-form">
+          <div>
+            <label for="auth-tg-id">Telegram User ID</label>
+            <input id="auth-tg-id" type="number" min="1" step="1" placeholder="Enter your Telegram ID" required />
+            <p class="helper">Enter your Telegram user ID to authorize</p>
           </div>
-          <form id="auth-form">
-            <label for="auth-tg-id">Authorize by tg_id</label>
-            <input id="auth-tg-id" type="number" min="1" step="1" placeholder="Telegram user id" required />
-            <button type="submit">Authorize</button>
-          </form>
-        </section>
-
-        <section>
-          <h2>Balance Control</h2>
-          <p class="helper">Balance updates use tg_id and do not require headers.</p>
+          <button type="submit">Authorize</button>
+        </form>
+        <div style="margin-top: 24px; padding-top: 24px; border-top: 2px solid var(--ink);">
+          <h3 style="font-size: 1.2rem; margin-bottom: 16px;">Balance Control</h3>
           <form id="balance-form">
-            <label for="balance-amount">Amount</label>
-            <input id="balance-amount" type="number" min="1" step="0.01" placeholder="e.g. 100" required />
-            <div class="actions">
-              <button type="button" id="balance-increase">Increase</button>
-              <button class="secondary" type="button" id="balance-decrease">Decrease</button>
+            <div>
+              <label for="balance-amount">Amount</label>
+              <input id="balance-amount" type="number" min="1" step="0.01" placeholder="100" required />
+            </div>
+            <div style="display: flex; gap: 12px;">
+              <button type="button" id="balance-increase" style="flex: 1;">Increase</button>
+              <button type="button" id="balance-decrease" class="secondary" style="flex: 1;">Decrease</button>
             </div>
           </form>
-        </section>
-      </div>
-
-      <div class="split">
-        <section>
-          <h2>Auctions Feed</h2>
-          <div class="list-wrap" id="auction-list"></div>
-        </section>
-
-        <section>
-          <h2>Update Selected</h2>
-          <div class="helper" id="selected-label">Pick an auction from the feed to edit.</div>
-          <form id="update-form">
-            <div>
-              <label for="update-id">Auction ID</label>
-              <input id="update-id" type="text" readonly />
-            </div>
-            <div>
-              <label for="update-creator">User ID (tg_id)</label>
-              <input id="update-creator" type="number" min="1" step="1" placeholder="needed for updates" />
-            </div>
-            <div>
-              <label for="update-name">Auction Name</label>
-              <input id="update-name" type="text" />
-            </div>
-            <div>
-              <label for="update-item">Item Name</label>
-              <input id="update-item" type="text" />
-            </div>
-            <div class="field-row">
-              <div>
-                <label for="update-min-bid">Min Bid</label>
-                <input id="update-min-bid" type="number" min="0" step="0.01" />
-              </div>
-              <div>
-                <label for="update-winners">Winners Total</label>
-                <input id="update-winners" type="number" min="1" />
-              </div>
-              <div>
-                <label for="update-rounds">Rounds Count</label>
-                <input id="update-rounds" type="number" min="1" />
-              </div>
-            </div>
-            <div class="field-row">
-              <div>
-                <label for="update-first-round">First Round Duration (ms)</label>
-                <input id="update-first-round" type="number" min="0" placeholder="leave empty to clear" />
-              </div>
-              <div>
-                <label for="update-round-duration">Round Duration (ms)</label>
-                <input id="update-round-duration" type="number" min="1" />
-              </div>
-            </div>
-            <div>
-              <label for="update-start">Start Date/Time</label>
-              <input id="update-start" type="datetime-local" />
-            </div>
-            <div class="actions">
-              <button type="submit">Apply Update</button>
-              <button class="secondary" type="button" id="update-reset">Reset Selection</button>
-            </div>
-          </form>
-        </section>
+        </div>
       </div>
     </div>
 
-    <script>
-      const healthChip = document.getElementById("health-chip");
-      const actionChip = document.getElementById("action-chip");
-      const listEl = document.getElementById("auction-list");
-      const filterForm = document.getElementById("filter-form");
-      const filterStatus = document.getElementById("filter-status");
-      const filterLimit = document.getElementById("filter-limit");
-      const clearSelectionBtn = document.getElementById("clear-selection");
+    <!-- Create Auction Page -->
+    <div id="page-create" class="page">
+      <div class="container">
+        <h1>Create Auction</h1>
+        <div id="create-error" class="error" style="display: none;"></div>
+        <div id="create-success" class="success" style="display: none;"></div>
+        <form id="create-form">
+          <div>
+            <label for="create-name">Auction Name (optional)</label>
+            <input id="create-name" type="text" placeholder="Evening bid rush" />
+          </div>
+          <div>
+            <label for="create-item">Item Name *</label>
+            <input id="create-item" type="text" placeholder="Limited token drop" required />
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="create-min-bid">Min Bid *</label>
+              <input id="create-min-bid" type="number" min="0" step="0.01" required />
+            </div>
+            <div>
+              <label for="create-winners">Winners Total *</label>
+              <input id="create-winners" type="number" min="1" required />
+            </div>
+            <div>
+              <label for="create-rounds">Rounds Count *</label>
+              <input id="create-rounds" type="number" min="1" required />
+            </div>
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="create-first-round">First Round Duration (ms)</label>
+              <input id="create-first-round" type="number" min="0" placeholder="optional" />
+              <p class="helper">Leave empty to use default</p>
+            </div>
+            <div>
+              <label for="create-round-duration">Round Duration (ms) *</label>
+              <input id="create-round-duration" type="number" min="1" required />
+            </div>
+          </div>
+          <div>
+            <label for="create-start-datetime">Start Date/Time *</label>
+            <input 
+              id="create-start-datetime" 
+              type="text" 
+              placeholder="2026-12-31 00:00:00" 
+              pattern="\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
+              required 
+            />
+            <p class="helper">Format: YYYY-MM-DD HH:mm:ss (e.g., 2026-12-31 00:00:00)</p>
+          </div>
+          <button type="submit">Create Auction</button>
+        </form>
+      </div>
+    </div>
 
-      const createForm = document.getElementById("create-form");
-      const createCreator = document.getElementById("create-creator");
-      const createName = document.getElementById("create-name");
-      const createItem = document.getElementById("create-item");
-      const createMinBid = document.getElementById("create-min-bid");
-      const createWinners = document.getElementById("create-winners");
-      const createRounds = document.getElementById("create-rounds");
-      const createFirstRound = document.getElementById("create-first-round");
-      const createRoundDuration = document.getElementById("create-round-duration");
-      const createStart = document.getElementById("create-start");
-      const createReset = document.getElementById("create-reset");
+    <!-- Live Auction Page -->
+    <div id="page-live" class="page">
+      <div class="live-container">
+        <div class="live-header">
+          <h2>
+            <span class="ws-status disconnected" id="ws-status"></span>
+            Live Auction View
+          </h2>
+          <form class="watch-form" id="watch-form">
+            <input id="watch-auction-id" type="text" placeholder="Enter Auction ID" required />
+            <button type="submit">Watch</button>
+          </form>
+        </div>
 
-      const updateForm = document.getElementById("update-form");
-      const updateId = document.getElementById("update-id");
-      const updateCreator = document.getElementById("update-creator");
-      const updateName = document.getElementById("update-name");
-      const updateItem = document.getElementById("update-item");
-      const updateMinBid = document.getElementById("update-min-bid");
-      const updateWinners = document.getElementById("update-winners");
-      const updateRounds = document.getElementById("update-rounds");
-      const updateFirstRound = document.getElementById("update-first-round");
-      const updateRoundDuration = document.getElementById("update-round-duration");
-      const updateStart = document.getElementById("update-start");
-      const updateReset = document.getElementById("update-reset");
-      const selectedLabel = document.getElementById("selected-label");
-      const userStats = document.getElementById("user-stats");
-      const authForm = document.getElementById("auth-form");
-      const authTgId = document.getElementById("auth-tg-id");
-      const balanceAmount = document.getElementById("balance-amount");
-      const balanceIncrease = document.getElementById("balance-increase");
-      const balanceDecrease = document.getElementById("balance-decrease");
+        <div id="live-content" style="display: none;">
+          <div class="round-info">
+            <div><strong>Auction:</strong> <span id="live-auction-name">-</span></div>
+            <div><strong>Item:</strong> <span id="live-auction-item">-</span></div>
+            <div><strong>Status:</strong> <span id="live-auction-status">-</span></div>
+            <div><strong>Round:</strong> <span id="live-round-info">-</span></div>
+            <div><strong>Remaining Items:</strong> <span id="live-remaining-items">-</span></div>
+          </div>
+          
+          <div class="timer" id="live-timer">--:--</div>
+          
+          <div class="round-info">
+            <h3 style="margin: 0 0 12px; font-size: 1.2rem;">Top Bids</h3>
+            <div class="top-bids" id="top-bids-list"></div>
+          </div>
+          
+          <div class="round-info">
+            <h3 style="margin: 0 0 12px; font-size: 1.2rem;">All Participants</h3>
+            <div class="top-bids" id="all-bids-list"></div>
+          </div>
+          
+          <div class="round-info" id="user-bid-info" style="display: none;">
+            <h3 style="margin: 0 0 12px; font-size: 1.2rem;">Your Bid</h3>
+            <div><strong>Amount:</strong> <span id="user-bid-amount">-</span></div>
+            <div><strong>Place:</strong> <span id="user-bid-place">-</span></div>
+          </div>
+          
+          <div class="bid-form-section">
+            <h3 style="margin: 0 0 16px; font-size: 1.2rem;">Make a Bid</h3>
+            <div class="helper" id="min-bid-info"></div>
+            <form id="bid-form">
+              <div class="field-row">
+                <div>
+                  <label for="bid-amount">Amount</label>
+                  <input id="bid-amount" type="number" min="0" step="0.01" placeholder="100" required />
+                </div>
+                <div>
+                  <label for="bid-idempotency">Idempotency Key</label>
+                  <input id="bid-idempotency" type="text" placeholder="auto-generated" required />
+                </div>
+              </div>
+              <div>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="bid-add-to-existing" />
+                  <span>Add to existing bid</span>
+                </label>
+              </div>
+              <button type="submit">Place Bid</button>
+            </form>
+          </div>
+        </div>
 
-      const state = {
-        auctions: [],
-        selected: null,
-        user: null,
-      };
+        <div id="live-empty" class="empty">
+          Enter an Auction ID above to watch it live
+        </div>
+      </div>
+    </div>
 
-      function setAction(message, tone = "neutral") {
-        actionChip.textContent = message;
-        actionChip.classList.remove("ok", "warn");
-        if (tone === "ok") actionChip.classList.add("ok");
-        if (tone === "warn") actionChip.classList.add("warn");
-      }
+    <!-- Auctions Management Page -->
+    <div id="page-auctions" class="page">
+      <div class="live-container">
+        <div class="live-header">
+          <h2>My Auctions</h2>
+          <div id="auctions-error" class="error" style="display: none;"></div>
+          <div id="auctions-success" class="success" style="display: none;"></div>
+        </div>
 
-      function formatLocalInput(date) {
-        const pad = (value) => String(value).padStart(2, "0");
-        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-          date.getHours(),
-        )}:${pad(date.getMinutes())}`;
-      }
+        <div id="auctions-content">
+          <div class="auctions-filters">
+            <button type="button" class="filter-btn active" data-filter="all">All</button>
+            <button type="button" class="filter-btn" data-filter="DRAFT">Drafts</button>
+            <button type="button" class="filter-btn" data-filter="RELEASED">Released</button>
+            <button type="button" class="filter-btn" data-filter="LIVE">Live</button>
+            <button type="button" class="filter-btn" data-filter="FINISHED">Finished</button>
+          </div>
 
-      function syncDateMins() {
-        const minValue = formatLocalInput(new Date());
-        createStart.min = minValue;
-        updateStart.min = minValue;
-      }
+          <div id="auctions-list" class="auctions-list"></div>
+        </div>
 
-      function toLocalInput(value) {
-        if (!value) return "";
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return "";
-        return formatLocalInput(date);
-      }
+        <div id="auction-detail" class="auction-detail" style="display: none;">
+          <button type="button" class="back-btn" id="auction-detail-back">← Back</button>
+          <div id="auction-detail-content"></div>
+        </div>
+      </div>
+    </div>
 
-      function toIsoFromInput(value) {
-        if (!value) return null;
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return null;
-        return date.toISOString();
-      }
+    <!-- Edit Auction Page -->
+    <div id="page-edit" class="page">
+      <div class="container">
+        <h1>Edit Auction</h1>
+        <div id="edit-error" class="error" style="display: none;"></div>
+        <div id="edit-success" class="success" style="display: none;"></div>
+        <form id="edit-form">
+          <div>
+            <label for="edit-name">Auction Name (optional)</label>
+            <input id="edit-name" type="text" placeholder="Evening bid rush" />
+          </div>
+          <div>
+            <label for="edit-item">Item Name *</label>
+            <input id="edit-item" type="text" placeholder="Limited token drop" required />
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="edit-min-bid">Min Bid *</label>
+              <input id="edit-min-bid" type="number" min="0" step="0.01" required />
+            </div>
+            <div>
+              <label for="edit-winners">Winners Total *</label>
+              <input id="edit-winners" type="number" min="1" required />
+            </div>
+            <div>
+              <label for="edit-rounds">Rounds Count *</label>
+              <input id="edit-rounds" type="number" min="1" required />
+            </div>
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="edit-first-round">First Round Duration (ms)</label>
+              <input id="edit-first-round" type="number" min="0" placeholder="optional" />
+              <p class="helper">Leave empty to use default</p>
+            </div>
+            <div>
+              <label for="edit-round-duration">Round Duration (ms) *</label>
+              <input id="edit-round-duration" type="number" min="1" required />
+            </div>
+          </div>
+          <div>
+            <label for="edit-start-datetime">Start Date/Time *</label>
+            <input 
+              id="edit-start-datetime" 
+              type="text" 
+              placeholder="2026-12-31 00:00:00" 
+              pattern="\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
+              required 
+            />
+            <p class="helper">Format: YYYY-MM-DD HH:mm:ss (e.g., 2026-12-31 00:00:00)</p>
+          </div>
+          <div style="display: flex; gap: 12px;">
+            <button type="submit">Save Changes</button>
+            <button type="button" class="secondary" id="edit-cancel-btn">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
-      function formatDate(value) {
-        if (!value) return "-";
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return "-";
-        return date.toLocaleString();
-      }
-
-      async function apiRequest(path, options = {}) {
-        const response = await fetch(path, options);
-        let payload = null;
-        try {
-          payload = await response.json();
-        } catch (error) {
-          payload = null;
-        }
-        if (!response.ok) {
-          const message = payload?.error || `Request failed (${response.status})`;
-          throw new Error(message);
-        }
-        return payload;
-      }
-
-      async function loadHealth() {
-        try {
-          const data = await apiRequest("http://localhost:3000/api/health");
-          const ok = data.ok === true;
-          healthChip.textContent = ok ? "API Healthy" : "API Not Ready";
-          healthChip.classList.toggle("ok", ok);
-          healthChip.classList.toggle("warn", !ok);
-        } catch (error) {
-          healthChip.textContent = "API Error";
-          healthChip.classList.add("warn");
-        }
-      }
-
-      function renderUser() {
-        if (!state.user) {
-          userStats.innerHTML = `
-            <div><span>Status:</span> Guest</div>
-            <div><span>tg_id:</span> -</div>
-            <div><span>Username:</span> -</div>
-            <div><span>Balance:</span> -</div>
-          `;
-          return;
-        }
-        userStats.innerHTML = `
-          <div><span>Status:</span> Active</div>
-          <div><span>tg_id:</span> ${state.user.tg_id}</div>
-          <div><span>Username:</span> ${state.user.username}</div>
-          <div><span>Balance:</span> ${state.user.balance}</div>
-        `;
-      }
-
-      function renderAuctions() {
-        listEl.innerHTML = "";
-        const visible = state.auctions.filter((auction) => {
-          if (auction.status === "DELETED") return false;
-          if (auction.status === "LIVE") return true;
-          if (!state.user) return false;
-          return auction.creator_id === state.user.tg_id;
-        });
-
-        if (!visible.length) {
-          const empty = document.createElement("div");
-          empty.className = "empty";
-          empty.textContent = "No auctions found.";
-          listEl.appendChild(empty);
-          return;
-        }
-
-        visible.forEach((auction) => {
-          const card = document.createElement("div");
-          card.className = "auction-card";
-
-          const head = document.createElement("div");
-          head.className = "auction-head";
-          const title = document.createElement("div");
-          title.innerHTML = `<strong>${auction.name || "Untitled auction"}</strong>`;
-          const status = document.createElement("div");
-          status.className = `status-pill ${auction.status}`;
-          status.textContent = auction.status;
-          head.appendChild(title);
-          head.appendChild(status);
-
-          const meta = document.createElement("div");
-          meta.className = "meta";
-          meta.innerHTML = `
-            <div><span>ID:</span> ${auction._id}</div>
-            <div><span>Name:</span> ${auction.name || "Untitled"}</div>
-            <div><span>Creator tg_id:</span> ${auction.creator_id}</div>
-            <div><span>Item:</span> ${auction.item_name}</div>
-            <div><span>Status:</span> ${auction.status}</div>
-            <div><span>Min bid:</span> ${auction.min_bid}</div>
-            <div><span>Winners total:</span> ${auction.winners_count_total}</div>
-            <div><span>Rounds count:</span> ${auction.rounds_count}</div>
-            <div><span>Winners/round:</span> ${auction.winners_per_round}</div>
-            <div><span>First round (ms):</span> ${auction.first_round_duration_ms ?? "-"}</div>
-            <div><span>Round duration (ms):</span> ${auction.round_duration_ms}</div>
-            <div><span>Current round idx:</span> ${auction.current_round_idx}</div>
-            <div><span>Remaining items:</span> ${auction.remaining_items_count}</div>
-            <div><span>Starts:</span> ${formatDate(auction.start_datetime)}</div>
-            <div><span>Planned end:</span> ${formatDate(auction.planned_end_datetime)}</div>
-            <div><span>Created at:</span> ${formatDate(auction.created_at)}</div>
-            <div><span>Updated at:</span> ${formatDate(auction.updated_at)}</div>
-          `;
-
-          const actions = document.createElement("div");
-          actions.className = "actions";
-
-          const selectBtn = document.createElement("button");
-          selectBtn.type = "button";
-          selectBtn.className = "secondary";
-          selectBtn.textContent = "Edit";
-          selectBtn.addEventListener("click", () => selectAuction(auction));
-
-          const deleteBtn = document.createElement("button");
-          deleteBtn.type = "button";
-          deleteBtn.className = "ghost";
-          deleteBtn.textContent = "Delete";
-          deleteBtn.addEventListener("click", () => deleteAuction(auction));
-
-          if (state.user && auction.creator_id === state.user.tg_id && auction.status === "DRAFT") {
-            const releaseBtn = document.createElement("button");
-            releaseBtn.type = "button";
-            releaseBtn.textContent = "Release";
-            releaseBtn.addEventListener("click", () => releaseAuction(auction));
-            actions.appendChild(releaseBtn);
-          }
-
-          actions.appendChild(selectBtn);
-          actions.appendChild(deleteBtn);
-
-          card.appendChild(head);
-          card.appendChild(meta);
-          card.appendChild(actions);
-          listEl.appendChild(card);
-        });
-      }
-
-      async function loadAuctions() {
-        setAction("Loading auctions...");
-        const params = new URLSearchParams();
-        const limit = Number(filterLimit.value || 30);
-        params.set("limit", Number.isFinite(limit) ? String(limit) : "30");
-        if (filterStatus.value) params.set("status", filterStatus.value);
-
-        try {
-          const data = await apiRequest(`http://localhost:3000/api/auctions?${params.toString()}`);
-          state.auctions = Array.isArray(data) ? data : [];
-          renderAuctions();
-          setAction("Auctions loaded", "ok");
-        } catch (error) {
-          setAction(error.message || "Failed to load", "warn");
-        }
-      }
-
-      function selectAuction(auction) {
-        state.selected = auction;
-        selectedLabel.textContent = `Editing auction ${auction._id}`;
-        updateId.value = auction._id || "";
-        updateName.value = auction.name || "";
-        updateItem.value = auction.item_name || "";
-        updateCreator.value = auction.creator_id || "";
-        updateMinBid.value = auction.min_bid ?? "";
-        updateWinners.value = auction.winners_count_total ?? "";
-        updateRounds.value = auction.rounds_count ?? "";
-        updateFirstRound.value = auction.first_round_duration_ms ?? "";
-        updateRoundDuration.value = auction.round_duration_ms ?? "";
-        syncDateMins();
-        updateStart.value = toLocalInput(auction.start_datetime);
-      }
-
-      function resetSelection() {
-        state.selected = null;
-        selectedLabel.textContent = "Pick an auction from the feed to edit.";
-        updateForm.reset();
-        updateId.value = "";
-      }
-
-      function resetCreateForm() {
-        createForm.reset();
-        syncDateMins();
-        createStart.value = formatLocalInput(new Date(Date.now() + 60 * 60 * 1000));
-      }
-
-      async function createAuction(event) {
-        event.preventDefault();
-        const creatorId = Number(createCreator.value);
-        if (!Number.isFinite(creatorId) || creatorId <= 0) {
-          setAction("User ID is required", "warn");
-          return;
-        }
-        const startIso = toIsoFromInput(createStart.value);
-        const payload = {
-          name: createName.value.trim() || null,
-          item_name: createItem.value.trim(),
-          min_bid: Number(createMinBid.value),
-          winners_count_total: Number(createWinners.value),
-          rounds_count: Number(createRounds.value),
-          first_round_duration_ms: createFirstRound.value ? Number(createFirstRound.value) : null,
-          round_duration_ms: Number(createRoundDuration.value),
-          start_datetime: startIso,
-        };
-
-        setAction("Creating auction...");
-        try {
-          await apiRequest("http://localhost:3000/api/auctions", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-User-Id": String(creatorId),
-            },
-            body: JSON.stringify(payload),
-          });
-          setAction("Auction created", "ok");
-          resetCreateForm();
-          await loadAuctions();
-        } catch (error) {
-          setAction(error.message || "Create failed", "warn");
-        }
-      }
-
-      async function updateAuction(event) {
-        event.preventDefault();
-        if (!updateId.value) {
-          setAction("Select an auction first", "warn");
-          return;
-        }
-        const creatorId = Number(updateCreator.value);
-        if (!Number.isFinite(creatorId) || creatorId <= 0) {
-          setAction("User ID is required for update", "warn");
-          return;
-        }
-
-        const startIso = toIsoFromInput(updateStart.value);
-        const payload = {
-          name: updateName.value.trim() || null,
-          item_name: updateItem.value.trim(),
-          min_bid: Number(updateMinBid.value),
-          winners_count_total: Number(updateWinners.value),
-          rounds_count: Number(updateRounds.value),
-          first_round_duration_ms:
-            updateFirstRound.value === "" ? null : Number(updateFirstRound.value),
-          round_duration_ms: Number(updateRoundDuration.value),
-          start_datetime: startIso,
-        };
-
-        setAction("Updating auction...");
-        try {
-          await apiRequest(`http://localhost:3000/api/auctions/${updateId.value}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              "X-User-Id": String(creatorId),
-            },
-            body: JSON.stringify(payload),
-          });
-          setAction("Auction updated", "ok");
-          await loadAuctions();
-        } catch (error) {
-          setAction(error.message || "Update failed", "warn");
-        }
-      }
-
-      async function deleteAuction(auction) {
-        if (!auction?._id) return;
-        setAction("Deleting auction...");
-        try {
-          await apiRequest(`http://localhost:3000/api/auctions/${auction._id}`, {
-            method: "DELETE",
-          });
-          setAction("Auction deleted", "ok");
-          await loadAuctions();
-        } catch (error) {
-          setAction(error.message || "Delete failed", "warn");
-        }
-      }
-
-      async function releaseAuction(auction) {
-        if (!auction?._id || !state.user?.tg_id) return;
-        setAction("Releasing auction...");
-        try {
-          await apiRequest(`http://localhost:3000/api/auctions/${auction._id}/release`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-User-Id": String(state.user.tg_id),
-            },
-          });
-          setAction("Auction released", "ok");
-          await loadAuctions();
-        } catch (error) {
-          setAction(error.message || "Release failed", "warn");
-        }
-      }
-
-      async function authUser(event) {
-        event.preventDefault();
-        const tgId = Number(authTgId.value);
-        if (!Number.isFinite(tgId) || tgId <= 0) {
-          setAction("Enter a valid tg_id", "warn");
-          return;
-        }
-        setAction("Authorizing...");
-        try {
-          const user = await apiRequest("http://localhost:3000/api/users/auth", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tg_id: tgId }),
-          });
-          state.user = user;
-          renderUser();
-          createCreator.value = String(user.tg_id);
-          updateCreator.value = String(user.tg_id);
-          setAction("User authorized", "ok");
-        } catch (error) {
-          setAction(error.message || "Authorization failed", "warn");
-        }
-      }
-
-      async function changeBalance(direction) {
-        if (!state.user?.tg_id) {
-          setAction("Authorize first", "warn");
-          return;
-        }
-        const amount = Number(balanceAmount.value);
-        if (!Number.isFinite(amount) || amount <= 0) {
-          setAction("Enter a valid amount", "warn");
-          return;
-        }
-        const endpoint =
-          direction === "increase"
-            ? `http://localhost:3000/api/users/${state.user.tg_id}/balance/increase`
-            : `http://localhost:3000/api/users/${state.user.tg_id}/balance/decrease`;
-        setAction("Updating balance...");
-        try {
-          const user = await apiRequest(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ amount }),
-          });
-          state.user = user;
-          renderUser();
-          balanceAmount.value = "";
-          setAction("Balance updated", "ok");
-        } catch (error) {
-          setAction(error.message || "Balance update failed", "warn");
-        }
-      }
-
-      filterForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        loadAuctions();
-      });
-      createForm.addEventListener("submit", createAuction);
-      updateForm.addEventListener("submit", updateAuction);
-      createReset.addEventListener("click", resetCreateForm);
-      updateReset.addEventListener("click", resetSelection);
-      clearSelectionBtn.addEventListener("click", resetSelection);
-      authForm.addEventListener("submit", authUser);
-      balanceIncrease.addEventListener("click", () => changeBalance("increase"));
-      balanceDecrease.addEventListener("click", () => changeBalance("decrease"));
-
-      resetCreateForm();
-      renderUser();
-      loadHealth();
-      loadAuctions();
-    </script>
+    <script src="/app.js"></script>
   </body>
 </html>
