@@ -4,6 +4,7 @@ import type { RedisClientType } from "redis";
 import { getTopBids, getUserBid, getUserPlace } from "./bids.js";
 import { ensureUserByTgId, adjustUserBalanceByTgId } from "./users.js";
 import { createOrUpdateBid, addToBid } from "./bids.js";
+import { broadcastAuctionUpdate } from "./websocket.js";
 
 export type BotStrategy = "aggressive" | "conservative" | "random" | "adaptive";
 
@@ -100,11 +101,14 @@ const activeBots = new Map<string, NodeJS.Timeout>();
 let redisClient: RedisClientType<any, any, any> | null = null;
 const BOT_BID_QUEUE = "bot_bid_queue";
 const BOT_LOCK_PREFIX = "bot_lock:";
+const pendingBroadcasts = new Map<string, NodeJS.Timeout>();
+const BROADCAST_DEBOUNCE_MS = 500;
+let botBidProcessorInterval: NodeJS.Timeout | null = null;
+let isShuttingDown = false;
 
 export async function initializeBots(redis?: RedisClientType<any, any, any>) {
   redisClient = redis || null;
-  console.log(`Initializing ${BOT_CONFIGS.length} bots (max ${Number(process.env.MAX_BOTS_PER_AUCTION) || 200} per auction)...`);
-  
+  console.log(`Initializing ${BOT_CONFIGS.length} bot users in database (max ${Number(process.env.MAX_BOTS_PER_AUCTION) || 200} per auction)...`);
   
   const strategyCounts = BOT_CONFIGS.reduce((acc, bot) => {
     acc[bot.strategy] = (acc[bot.strategy] || 0) + 1;
@@ -176,23 +180,26 @@ export async function initializeBots(redis?: RedisClientType<any, any, any>) {
     }
   }
   
-  const liveAuctions = await Auction.find({ status: "LIVE" }).lean();
-  for (const auction of liveAuctions) {
-    await startBotsForAuction(auction._id.toString());
-  }
   if (redisClient) {
     startBotBidProcessor();
   }
+  
+  console.log(`Bot users initialized. Bots will be started automatically when auctions begin.`);
 }
 
 export async function startBotsForAuction(auctionId: string) {
   stopBotsForAuction(auctionId);
   const auction = await Auction.findById(auctionId).lean();
-  if (!auction || auction.status !== "LIVE") {
+  if (!auction) {
+    console.warn(`Cannot start bots for auction ${auctionId}: auction not found`);
+    return;
+  }
+  if (auction.status !== "LIVE") {
+    console.warn(`Cannot start bots for auction ${auctionId}: status is ${auction.status}, expected LIVE`);
     return;
   }
 
-  console.log(`Starting bots for auction ${auctionId}`);
+  console.log(`Starting bots for auction ${auctionId} (round ${auction.current_round_idx})`);
   const maxConcurrentBots = Math.min(
     BOT_CONFIGS.length, 
     Number(process.env.MAX_BOTS_PER_AUCTION) || 200
@@ -232,26 +239,39 @@ export function stopBotsForAuction(auctionId: string) {
     }
   }
   
-  if (redisClient) {
-    
-    const maxConcurrentBots = Math.min(
-      BOT_CONFIGS.length, 
-      Number(process.env.MAX_BOTS_PER_AUCTION) || 200
-    );
-    for (let i = 0; i < maxConcurrentBots; i++) {
-      const config = BOT_CONFIGS[i];
-      if (config) {
-        const lockKey = `${BOT_LOCK_PREFIX}${auctionId}-${config.tg_id}`;
-        redisClient.del(lockKey).catch(() => {});
+  const pendingBroadcast = pendingBroadcasts.get(auctionId);
+  if (pendingBroadcast) {
+    clearTimeout(pendingBroadcast);
+    pendingBroadcasts.delete(auctionId);
+  }
+  
+  if (redisClient && !isShuttingDown && redisClient.isOpen) {
+    try {
+      const maxConcurrentBots = Math.min(
+        BOT_CONFIGS.length, 
+        Number(process.env.MAX_BOTS_PER_AUCTION) || 200
+      );
+      for (let i = 0; i < maxConcurrentBots; i++) {
+        const config = BOT_CONFIGS[i];
+        if (config) {
+          const lockKey = `${BOT_LOCK_PREFIX}${auctionId}-${config.tg_id}`;
+          redisClient.del(lockKey).catch(() => {});
+        }
       }
+    } catch (error) {
+      // do nothig
     }
   }
 }
 
 async function scheduleBotBid(auctionId: string, config: BotConfig) {
+  if (isShuttingDown) {
+    return;
+  }
+  
   const lockKey = `${BOT_LOCK_PREFIX}${auctionId}-${config.tg_id}`;
   
-  if (redisClient) {
+  if (redisClient && !isShuttingDown && redisClient.isOpen) {
     try {
       const locked = await redisClient.get(lockKey);
       if (locked) {
@@ -259,15 +279,28 @@ async function scheduleBotBid(auctionId: string, config: BotConfig) {
       }
       await redisClient.setEx(lockKey, 5, "1");
     } catch (error) {
-      console.error("Redis lock error:", error);
+      if (!isShuttingDown) {
+        console.error("Redis lock error:", error);
+      }
+      return;
     }
   }
   
-  if (redisClient) {
-    await redisClient.rPush(
-      BOT_BID_QUEUE,
-      JSON.stringify({ auction_id: auctionId, bot_config: config })
-    );
+  if (isShuttingDown) {
+    return;
+  }
+  
+  if (redisClient && !isShuttingDown && redisClient.isOpen) {
+    try {
+      await redisClient.rPush(
+        BOT_BID_QUEUE,
+        JSON.stringify({ auction_id: auctionId, bot_config: config })
+      );
+    } catch (error) {
+      if (!isShuttingDown) {
+        console.error("Redis queue error:", error);
+      }
+    }
   } else {
     await executeBotBid(auctionId, config);
   }
@@ -275,10 +308,18 @@ async function scheduleBotBid(auctionId: string, config: BotConfig) {
 
 function startBotBidProcessor() {
   if (!redisClient) return;
-  setInterval(async () => {
+  botBidProcessorInterval = setInterval(async () => {
+    if (isShuttingDown) {
+      return;
+    }
+    
     try {
-      const result = await redisClient!.blPop(
-        redisClient!.commandOptions({ isolated: true }),
+      if (!redisClient || !redisClient.isOpen || isShuttingDown) {
+        return;
+      }
+      
+      const result = await redisClient.blPop(
+        redisClient.commandOptions({ isolated: true }),
         BOT_BID_QUEUE,
         1
       );
@@ -286,9 +327,47 @@ function startBotBidProcessor() {
       const task = JSON.parse(result.element);
       await executeBotBid(task.auction_id, task.bot_config);
     } catch (error) {
-      console.error("Error in bot bid processor:", error);
+      if (!isShuttingDown) {
+        console.error("Error in bot bid processor:", error);
+      }
     }
   }, 100);
+}
+
+export async function shutdownBots(): Promise<void> {
+  console.log("Shutting down bots...");
+  
+  isShuttingDown = true;
+  
+  if (botBidProcessorInterval) {
+    clearInterval(botBidProcessorInterval);
+    botBidProcessorInterval = null;
+  }
+  
+  const auctionIds = new Set<string>();
+  for (const key of activeBots.keys()) {
+    const auctionId = key.split("-")[0];
+    if (auctionId) {
+      auctionIds.add(auctionId);
+    }
+  }
+  
+  for (const auctionId of auctionIds) {
+    stopBotsForAuction(auctionId);
+  }
+  
+  for (const timeout of pendingBroadcasts.values()) {
+    clearTimeout(timeout);
+  }
+  pendingBroadcasts.clear();
+  
+  for (const timeout of activeBots.values()) {
+    clearTimeout(timeout);
+    clearInterval(timeout);
+  }
+  activeBots.clear();
+  
+  console.log("Bots shutdown complete");
 }
 
 async function executeBotBid(auctionId: string, config: BotConfig) {
@@ -346,6 +425,7 @@ async function executeBotBid(auctionId: string, config: BotConfig) {
     const existingBid = await getUserBid(auctionId, currentRound._id.toString(), botUser._id.toString());
     const idempotencyKey = `bot-${config.tg_id}-${auctionId}-${currentRound._id}-${Date.now()}`;
 
+    let bidUpdated = false;
     if (existingBid) {
       const additionalAmount = bidAmount - existingBid.amount;
       if (additionalAmount > 0) {
@@ -357,6 +437,7 @@ async function executeBotBid(auctionId: string, config: BotConfig) {
           idempotencyKey
         );
         await adjustUserBalanceByTgId(config.tg_id, -additionalAmount);
+        bidUpdated = true;
       }
     } else {
       await createOrUpdateBid({
@@ -367,14 +448,33 @@ async function executeBotBid(auctionId: string, config: BotConfig) {
         idempotency_key: idempotencyKey,
       });
       await adjustUserBalanceByTgId(config.tg_id, -bidAmount);
+      bidUpdated = true;
     }
-    console.log(`Bot ${config.username} placed bid ${bidAmount.toFixed(2)} in auction ${auctionId}`);
+    
+    if (bidUpdated) {
+      console.log(`Bot ${config.username} placed bid ${bidAmount.toFixed(2)} in auction ${auctionId}`);
+      const existingTimeout = pendingBroadcasts.get(auctionId);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+      const timeout = setTimeout(async () => {
+        pendingBroadcasts.delete(auctionId);
+        await broadcastAuctionUpdate(auctionId).catch(error => {
+          console.error(`Error broadcasting auction update for ${auctionId}:`, error);
+        });
+      }, BROADCAST_DEBOUNCE_MS);
+      pendingBroadcasts.set(auctionId, timeout);
+    }
   } catch (error) {
     console.error(`Error executing bot bid for ${config.username}:`, error);
   } finally {
-    if (redisClient) {
-      const lockKey = `${BOT_LOCK_PREFIX}${auctionId}-${config.tg_id}`;
-      await redisClient.del(lockKey).catch(() => {});
+    if (redisClient && !isShuttingDown && redisClient.isOpen) {
+      try {
+        const lockKey = `${BOT_LOCK_PREFIX}${auctionId}-${config.tg_id}`;
+        await redisClient.del(lockKey);
+      } catch (error) {
+        // do nothig
+      }
     }
   }
 }
@@ -484,7 +584,7 @@ async function calculateBotBidAmount(
   }
   
   targetAmount = Math.min(targetAmount, maxAmount);
-  return Math.round(targetAmount * 100) / 100;
+  return Math.round(targetAmount);
 }
 
 function getBotInterval(config: BotConfig): number {

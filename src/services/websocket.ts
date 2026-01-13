@@ -12,9 +12,18 @@ interface AuctionSubscription {
 }
 
 const subscriptions = new Map<WebSocket, AuctionSubscription>();
+const lastAuctionStates = new Map<string, {
+  topBidsHash: string;
+  roundEndTime: number;
+  timeRemaining: number;
+  lastUpdate: number;
+}>();
+
+let wss: WebSocketServer | null = null;
+let timeUpdateInterval: NodeJS.Timeout | null = null;
 
 export function createWebSocketServer(httpServer: Server) {
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  wss = new WebSocketServer({ server: httpServer, path: "/ws" });
   wss.on("connection", (ws: WebSocket, _req: IncomingMessage) => {
     console.log("WebSocket client connected");
     ws.on("message", async (message: string) => {
@@ -62,12 +71,49 @@ export function createWebSocketServer(httpServer: Server) {
       }
     }, 30000);
   });
-  
-  setInterval(() => {
-    broadcastAuctionUpdates();
+
+  timeUpdateInterval = setInterval(() => {
+    broadcastTimeUpdates();
   }, 1000);
 
   return wss;
+}
+
+export async function shutdownWebSocketServer(): Promise<void> {
+  console.log("Shutting down WebSocket server...");
+  
+  if (timeUpdateInterval) {
+    clearInterval(timeUpdateInterval);
+    timeUpdateInterval = null;
+  }
+  
+  const closePromises: Promise<void>[] = [];
+  for (const [ws, sub] of subscriptions.entries()) {
+    if (ws.readyState === WebSocket.OPEN) {
+      closePromises.push(
+        new Promise<void>((resolve) => {
+          ws.once("close", () => resolve());
+          ws.close(1001, "Server shutting down");
+        })
+      );
+    }
+  }
+  
+  await Promise.all(closePromises);
+  subscriptions.clear();
+  
+  if (wss) {
+    await new Promise<void>((resolve) => {
+      wss!.close(() => {
+        console.log("WebSocket server closed");
+        resolve();
+      });
+    });
+    wss = null;
+  }
+  
+  lastAuctionStates.clear();
+  console.log("WebSocket server shutdown complete");
 }
 
 async function sendAuctionState(ws: WebSocket, auctionId: string, userId?: string) {
@@ -79,6 +125,33 @@ async function sendAuctionState(ws: WebSocket, auctionId: string, userId?: strin
     const auction = await Auction.findById(auctionId).lean();
     if (!auction) {
       ws.send(JSON.stringify({ type: "error", message: "auction not found" }));
+      return;
+    }
+
+    if (auction.status === "RELEASED") {
+      const now = Date.now();
+      const startTime = auction.start_datetime.getTime();
+      const timeUntilStart = Math.max(0, startTime - now);
+      
+      ws.send(JSON.stringify({
+        type: "auction_state",
+        auction: {
+          id: auction._id.toString(),
+          name: auction.name,
+          item_name: auction.item_name,
+          status: auction.status,
+          current_round_idx: auction.current_round_idx,
+          rounds_count: auction.rounds_count,
+          remaining_items_count: auction.remaining_items_count,
+          start_datetime: auction.start_datetime.toISOString(),
+          time_until_start_ms: timeUntilStart,
+        },
+        round: null,
+        top_bids: [],
+        all_bids: [],
+        user_bid: null,
+        user_place: null,
+      }));
       return;
     }
 
@@ -184,7 +257,7 @@ async function sendAuctionState(ws: WebSocket, auctionId: string, userId?: strin
   }
 }
 
-async function broadcastAuctionUpdates() {
+async function broadcastTimeUpdates() {
   const auctionIds = new Set<string>();
   
   for (const sub of subscriptions.values()) {
@@ -196,13 +269,65 @@ async function broadcastAuctionUpdates() {
       continue;
     }
     const auction = await Auction.findById(auctionId).lean();
-    if (!auction || auction.status !== "LIVE") continue;
+    if (!auction) continue;
+    
+    const now = Date.now();
     const subscribers = Array.from(subscriptions.values()).filter(
       (sub) => sub.auctionId === auctionId
     );
+    
+    if (auction.status === "RELEASED") {
+      const startTime = auction.start_datetime.getTime();
+      const timeUntilStart = Math.max(0, startTime - now);
+      
+      for (const sub of subscribers) {
+        if (sub.ws.readyState === WebSocket.OPEN) {
+          try {
+            sub.ws.send(JSON.stringify({
+              type: "time_update",
+              auction_id: auctionId,
+              time_until_start_ms: timeUntilStart,
+            }));
+          } catch (error) {
+            console.error("Error sending time update:", error);
+            subscriptions.delete(sub.ws);
+          }
+        } else {
+          subscriptions.delete(sub.ws);
+        }
+      }
+      continue;
+    }
+    
+    if (auction.status !== "LIVE") continue;
+    
+    const currentRound = await Round.findOne({
+      auction_id: auctionId,
+      idx: auction.current_round_idx,
+    }).lean();
+
+    if (!currentRound) continue;
+
+    const roundEndTime = currentRound.extended_until
+      ? currentRound.extended_until.getTime()
+      : currentRound.ended_at.getTime();
+    const timeRemaining = Math.max(0, roundEndTime - now);
+
     for (const sub of subscribers) {
       if (sub.ws.readyState === WebSocket.OPEN) {
-        await sendAuctionState(sub.ws, auctionId, sub.userId);
+        try {
+          sub.ws.send(JSON.stringify({
+            type: "time_update",
+            auction_id: auctionId,
+            round: {
+              idx: currentRound.idx,
+              time_remaining_ms: timeRemaining,
+            },
+          }));
+        } catch (error) {
+          console.error("Error sending time update:", error);
+          subscriptions.delete(sub.ws);
+        }
       } else {
         subscriptions.delete(sub.ws);
       }
@@ -210,17 +335,64 @@ async function broadcastAuctionUpdates() {
   }
 }
 
-export function broadcastAuctionUpdate(auctionId: string) {
+export async function broadcastAuctionUpdate(auctionId: string) {
   if (!mongoose.Types.ObjectId.isValid(auctionId)) {
     console.warn(`Invalid auction ID format: ${auctionId}`);
     return;
   }
+  
   const subscribers = Array.from(subscriptions.values()).filter(
-    (sub) => sub.auctionId === auctionId
+    (sub) => sub.auctionId === auctionId && sub.ws.readyState === WebSocket.OPEN
   );
-  for (const sub of subscribers) {
-    if (sub.ws.readyState === WebSocket.OPEN) {
-      sendAuctionState(sub.ws, auctionId, sub.userId);
-    }
+  
+  if (subscribers.length === 0) {
+    return;
   }
+
+  const auction = await Auction.findById(auctionId).lean();
+  if (!auction || (auction.status !== "LIVE" && auction.status !== "RELEASED")) {
+    return;
+  }
+
+  const currentRound = await Round.findOne({
+    auction_id: auctionId,
+    idx: auction.current_round_idx,
+  }).lean();
+
+  if (!currentRound) {
+    return;
+  }
+
+  const roundId = currentRound._id.toString();
+  const { getTopBids } = await import("./bids.js");
+  const topBids = await getTopBids(auctionId, roundId, 10);
+  
+  const topBidsHash = JSON.stringify(topBids.map(b => ({ user_id: b.user_id, amount: b.amount, place_id: b.place_id })));
+  const lastState = lastAuctionStates.get(auctionId);
+  
+  if (lastState && lastState.topBidsHash === topBidsHash) {
+    return;
+  }
+
+  const now = Date.now();
+  const roundEndTime = currentRound.extended_until
+    ? currentRound.extended_until.getTime()
+    : currentRound.ended_at.getTime();
+  const timeRemaining = Math.max(0, roundEndTime - now);
+  
+  lastAuctionStates.set(auctionId, {
+    topBidsHash,
+    roundEndTime,
+    timeRemaining,
+    lastUpdate: now,
+  });
+
+  const sendPromises = subscribers.map(sub => 
+    sendAuctionState(sub.ws, auctionId, sub.userId).catch(error => {
+      console.error("Error broadcasting to subscriber:", error);
+      subscriptions.delete(sub.ws);
+    })
+  );
+  
+  await Promise.all(sendPromises);
 }

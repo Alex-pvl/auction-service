@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import mongoose from "mongoose";
 import type { RedisClientType } from "redis";
+import { createRateLimiter, createStrictRateLimiter, createBidRateLimiter } from "../middleware/rateLimit.js";
 import {
   createAuction,
   getAuctionById,
@@ -16,16 +17,22 @@ import {
   getUserByTgId,
 } from "../services/users.js";
 import {
-  createOrUpdateBid,
-  addToBid,
   getUserBid,
   getUserPlace,
   getTopBids,
-  getAllBidsInRound,
+  createBidWithBalanceDeduction,
+  addToBidWithBalanceDeduction,
 } from "../services/bids.js";
 import { handleTop3Bid } from "../services/auction-lifecycle.js";
 import { Round } from "../storage/mongo.js";
 import { broadcastAuctionUpdate } from "../services/websocket.js";
+import {
+  getDeliveriesByUser,
+  getDeliveriesByAuction,
+  getDeliveriesByRound,
+  getDeliveryById,
+  getDeliveryStats,
+} from "../services/deliveries.js";
 
 const auctionStatuses = new Set(["DRAFT", "RELEASED", "LIVE", "FINISHED", "DELETED"]);
 
@@ -62,13 +69,17 @@ async function requireUserByTgId(tgId: number, res: any) {
 }
 
 export function registerApiRoutes(app: Express, redis: RedisClientType<any, any, any>) {
+  const generalLimiter = createRateLimiter(redis);
+  const strictLimiter = createStrictRateLimiter(redis);
+  const bidLimiter = createBidRateLimiter(redis);
+
   app.get("/api/health", async (_req, res) => {
     const mongoOk = mongoose.connection.readyState === 1;
     const redisOk = redis.isOpen;
     res.json({ ok: mongoOk && redisOk, mongoOk, redisOk });
   });
 
-  app.get("/api/auctions", async (req, res) => {
+  app.get("/api/auctions", generalLimiter, async (req, res) => {
     const limitRaw = Number(req.query?.limit ?? 50);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
     const status = req.query?.status ? String(req.query.status).toUpperCase() : undefined;
@@ -81,7 +92,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     res.json(auctions);
   });
 
-  app.get("/api/auctions/:id", async (req, res) => {
+  app.get("/api/auctions/:id", generalLimiter, async (req, res) => {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       res.status(400).json({ error: "invalid id" });
@@ -109,7 +120,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     res.json(auction);
   });
 
-  app.post("/api/auctions", async (req, res) => {
+  app.post("/api/auctions", strictLimiter, async (req, res) => {
     const body = req.body ?? {};
     const errors: string[] = [];
     const userHeader = req.get("X-User-Id");
@@ -176,7 +187,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     res.status(201).json(auction);
   });
 
-  app.put("/api/auctions/:id", async (req, res) => {
+  app.put("/api/auctions/:id", strictLimiter, async (req, res) => {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       res.status(400).json({ error: "invalid id" });
@@ -287,8 +298,11 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     }
     if ("remaining_items_count" in body) {
       const value = Number(body.remaining_items_count);
-      if (Number.isFinite(value)) updates.remaining_items_count = value;
-      else errors.push("remaining_items_count");
+      if (Number.isFinite(value) && value >= 0) {
+        updates.remaining_items_count = value;
+      } else {
+        errors.push("remaining_items_count must be a non-negative number");
+      }
     }
     if ("start_datetime" in body) {
       const value = toDate(body.start_datetime);
@@ -442,7 +456,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     res.json(updated);
   });
 
-  app.post("/api/auctions/:id/bids", async (req, res) => {
+  app.post("/api/auctions/:id/bids", bidLimiter, async (req, res) => {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       res.status(400).json({ error: "invalid auction id" });
@@ -479,6 +493,12 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
 
     if (!Number.isFinite(amount) || amount <= 0) {
       res.status(400).json({ error: "amount must be positive" });
+      return;
+    }
+
+    // Ставки должны быть целыми числами
+    if (!Number.isInteger(amount)) {
+      res.status(400).json({ error: "amount must be an integer (no decimal places)" });
       return;
     }
 
@@ -540,33 +560,78 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
           return;
         }
         
-        bid = await addToBid(id, roundId, user._id.toString(), amount, idempotencyKey);
-        isBidUpdate = true;
-
-        await adjustUserBalanceByTgId(userId, -amount);
-      } else {
+        const totalAmount = existingBid.amount + amount;
+        if (totalAmount < minBidForRound) {
+          res.status(400).json({ 
+            error: `total bid amount (${existingBid.amount.toFixed(2)} + ${amount.toFixed(2)} = ${totalAmount.toFixed(2)}) must be at least ${minBidForRound} (min bid for round ${auction.current_round_idx + 1})` 
+          });
+          return;
+        }
         
+        const userPlaceBefore = await getUserPlace(id, roundId, user._id.toString());
+        if (userPlaceBefore === 1) {
+          res.status(409).json({ 
+            error: "cannot add to bid: you are already in first place",
+            place: userPlaceBefore
+          });
+          return;
+        }
+        
+        bid = await addToBidWithBalanceDeduction(
+          id,
+          roundId,
+          user._id.toString(),
+          userId,
+          amount,
+          idempotencyKey
+        );
+        isBidUpdate = true;
+      } else {
         if (existingBid) {
-          bid = await addToBid(id, roundId, user._id.toString(), amount, idempotencyKey);
+          // При добавлении к существующей ставке проверяем, что итоговая сумма >= minBidForRound
+          const totalAmount = existingBid.amount + amount;
+          if (totalAmount < minBidForRound) {
+            res.status(400).json({ 
+              error: `total bid amount (${existingBid.amount.toFixed(2)} + ${amount.toFixed(2)} = ${totalAmount.toFixed(2)}) must be at least ${minBidForRound} (min bid for round ${auction.current_round_idx + 1})` 
+            });
+            return;
+          }
+          
+          // Проверяем, не является ли пользователь топ-1
+          const userPlaceBefore = await getUserPlace(id, roundId, user._id.toString());
+          if (userPlaceBefore === 1) {
+            res.status(409).json({ 
+              error: "cannot add to bid: you are already in first place",
+              place: userPlaceBefore
+            });
+            return;
+          }
+          
+          bid = await addToBidWithBalanceDeduction(
+            id,
+            roundId,
+            user._id.toString(),
+            userId,
+            amount,
+            idempotencyKey
+          );
           isBidUpdate = true;
         } else {
-          
+          // Для новой ставки проверяем, что сумма >= minBidForRound
           if (amount < minBidForRound) {
             res.status(400).json({ error: `amount must be at least ${minBidForRound} (min bid for round ${auction.current_round_idx + 1})` });
             return;
           }
           
-          bid = await createOrUpdateBid({
+          bid = await createBidWithBalanceDeduction({
             auction_id: id,
             round_id: roundId,
             user_id: user._id.toString(),
             amount,
             idempotency_key: idempotencyKey,
-          });
+          }, userId, amount);
           isBidUpdate = false; 
         }
-        
-        await adjustUserBalanceByTgId(userId, -amount);
       }
       
       if (auction.current_round_idx === 0 && isBidUpdate) {
@@ -579,7 +644,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
 
       const place = await getUserPlace(id, roundId, user._id.toString());
       
-      broadcastAuctionUpdate(id);
+      await broadcastAuctionUpdate(id);
 
       res.json({
         bid,
@@ -592,7 +657,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     }
   });
 
-  app.get("/api/auctions/:id/rounds/:roundIdx/bids", async (req, res) => {
+  app.get("/api/auctions/:id/rounds/:roundIdx/bids", generalLimiter, async (req, res) => {
     const { id, roundIdx } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       res.status(400).json({ error: "invalid auction id" });
@@ -625,7 +690,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     res.json(topBids);
   });
 
-  app.get("/api/auctions/:id/my-bid", async (req, res) => {
+  app.get("/api/auctions/:id/my-bid", generalLimiter, async (req, res) => {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       res.status(400).json({ error: "invalid auction id" });
@@ -662,5 +727,104 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
     const place = bid ? await getUserPlace(id, currentRound._id.toString(), user._id.toString()) : null;
 
     res.json({ bid, place });
+  });
+
+  app.get("/api/deliveries", generalLimiter, async (req, res) => {
+    const userHeader = req.get("X-User-Id");
+    const userId = userHeader ? parseTgId(userHeader) : null;
+    
+    if (!userId) {
+      res.status(400).json({ error: "X-User-Id header is required" });
+      return;
+    }
+
+    const user = await requireUserByTgId(userId, res);
+    if (!user) return;
+
+    const deliveries = await getDeliveriesByUser(user._id.toString());
+    res.json(deliveries);
+  });
+
+  app.get("/api/deliveries/:id", generalLimiter, async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid id" });
+      return;
+    }
+
+    const delivery = await getDeliveryById(id);
+    if (!delivery) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+
+    res.json(delivery);
+  });
+
+  app.get("/api/auctions/:id/deliveries", generalLimiter, async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const auction = await getAuctionById(id);
+    if (!auction) {
+      res.status(404).json({ error: "auction not found" });
+      return;
+    }
+
+    const deliveries = await getDeliveriesByAuction(id);
+    res.json(deliveries);
+  });
+
+  app.get("/api/auctions/:id/deliveries/stats", generalLimiter, async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const auction = await getAuctionById(id);
+    if (!auction) {
+      res.status(404).json({ error: "auction not found" });
+      return;
+    }
+
+    const stats = await getDeliveryStats(id);
+    res.json(stats);
+  });
+
+  app.get("/api/auctions/:id/rounds/:roundIdx/deliveries", generalLimiter, async (req, res) => {
+    const { id, roundIdx } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const roundIdxNum = Number(roundIdx);
+    if (!Number.isFinite(roundIdxNum) || roundIdxNum < 0) {
+      res.status(400).json({ error: "invalid round index" });
+      return;
+    }
+
+    const auction = await getAuctionById(id);
+    if (!auction) {
+      res.status(404).json({ error: "auction not found" });
+      return;
+    }
+
+    const round = await Round.findOne({
+      auction_id: id,
+      idx: roundIdxNum,
+    }).lean();
+
+    if (!round) {
+      res.status(404).json({ error: "round not found" });
+      return;
+    }
+
+    const deliveries = await getDeliveriesByRound(id, round._id.toString());
+    res.json(deliveries);
   });
 }

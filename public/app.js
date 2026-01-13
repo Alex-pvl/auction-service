@@ -353,13 +353,22 @@ function formatTime(ms) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+let reconnectTimeout = null;
+let shouldReconnect = true;
+
 function connectWebSocket(auctionId) {
   if (state.ws) {
+    shouldReconnect = false;
     state.ws.close();
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
   }
 
+  shouldReconnect = true;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsUrl = `${protocol}//localhost:3000/ws`;
+  const wsUrl = `${protocol}//${window.location.host}/ws`;
   
   state.ws = new WebSocket(wsUrl);
 
@@ -378,6 +387,8 @@ function connectWebSocket(auctionId) {
       const data = JSON.parse(event.data);
       if (data.type === "auction_state") {
         updateLiveAuction(data);
+      } else if (data.type === "time_update") {
+        updateTimer(data);
       } else if (data.type === "pong") {
         
       } else if (data.type === "error") {
@@ -391,8 +402,12 @@ function connectWebSocket(auctionId) {
   state.ws.onclose = () => {
     wsStatus.classList.remove("connected");
     wsStatus.classList.add("disconnected");
-    if (state.currentAuctionId) {
-      setTimeout(() => connectWebSocket(state.currentAuctionId), 3000);
+    if (shouldReconnect && state.currentAuctionId) {
+      reconnectTimeout = setTimeout(() => {
+        if (shouldReconnect && state.currentAuctionId) {
+          connectWebSocket(state.currentAuctionId);
+        }
+      }, 3000);
     }
   };
 
@@ -401,6 +416,23 @@ function connectWebSocket(auctionId) {
     wsStatus.classList.remove("connected");
     wsStatus.classList.add("disconnected");
   };
+}
+
+function updateTimer(data) {
+  if (data.round && data.round.time_remaining_ms !== undefined) {
+    const timeRemaining = data.round.time_remaining_ms || 0;
+    liveTimer.textContent = formatTime(timeRemaining);
+    
+    if (timeRemaining < 60000) {
+      liveTimer.classList.add("warning");
+    } else {
+      liveTimer.classList.remove("warning");
+    }
+  } else if (data.time_until_start_ms !== undefined) {
+    const timeUntilStart = data.time_until_start_ms || 0;
+    liveTimer.textContent = formatTime(timeUntilStart);
+    liveTimer.classList.remove("warning");
+  }
 }
 
 function updateLiveAuction(data) {
@@ -437,12 +469,45 @@ function updateLiveAuction(data) {
     const minBid = auction.min_bid || auction.base_min_bid || 0;
     const roundNum = round ? round.idx + 1 : 1;
     minBidInfo.textContent = `Minimum bid for round ${roundNum}: ${minBid.toFixed(2)}`;
-    bidAmount.min = minBid;
+    if (!bidAddToExisting || !bidAddToExisting.checked) {
+      bidAmount.min = minBid;
+    } else {
+      bidAmount.removeAttribute("min");
+    }
+  }
+
+  const userInfoElement = document.getElementById("user-info-top");
+  if (!userInfoElement) {
+    const infoDiv = document.createElement("div");
+    infoDiv.id = "user-info-top";
+    infoDiv.className = "round-info";
+    infoDiv.style.marginBottom = "12px";
+    topBidsList.parentNode.insertBefore(infoDiv, topBidsList);
+  }
+  
+  if (state.user && user_bid) {
+    const userInfoTop = document.getElementById("user-info-top");
+    const placeText = user_place !== null && user_place !== undefined ? `#${user_place}` : "Calculating...";
+    const amountText = typeof user_bid.amount === 'number' ? user_bid.amount.toFixed(2) : user_bid.amount;
+    userInfoTop.innerHTML = `
+      <div style="padding: 12px; background: var(--surface); border-radius: 8px;">
+        <strong>Your Telegram ID:</strong> ${state.user.tg_id} | 
+        <strong>Your Bid:</strong> ${amountText} | 
+        <strong>Your Place:</strong> ${placeText}
+      </div>
+    `;
+    userInfoTop.style.display = "block";
+  } else {
+    const userInfoTop = document.getElementById("user-info-top");
+    if (userInfoTop) {
+      userInfoTop.style.display = "none";
+    }
   }
 
   topBidsList.innerHTML = "";
-  if (top_bids && top_bids.length > 0) {
-    top_bids.forEach((bid, index) => {
+  const top3Bids = top_bids ? top_bids.slice(0, 3) : [];
+  if (top3Bids.length > 0) {
+    top3Bids.forEach((bid, index) => {
       const bidItem = document.createElement("div");
       bidItem.className = "bid-item";
       if (index < 3) bidItem.classList.add("top3");
@@ -466,7 +531,6 @@ function updateLiveAuction(data) {
     topBidsList.appendChild(empty);
   }
 
-  
   const allBidsList = document.getElementById("all-bids-list");
   if (allBidsList) {
     allBidsList.innerHTML = "";
@@ -496,10 +560,14 @@ function updateLiveAuction(data) {
     }
   }
 
-  if (user_bid && user_place !== null && user_place !== undefined) {
+  if (user_bid) {
     userBidInfo.style.display = "block";
     userBidAmount.textContent = typeof user_bid.amount === 'number' ? user_bid.amount.toFixed(2) : user_bid.amount;
-    userBidPlace.textContent = `#${user_place}`;
+    if (user_place !== null && user_place !== undefined) {
+      userBidPlace.textContent = `#${user_place}`;
+    } else {
+      userBidPlace.textContent = "Calculating...";
+    }
   } else {
     userBidInfo.style.display = "none";
   }
@@ -523,6 +591,7 @@ watchForm.addEventListener("submit", async (e) => {
   state.currentAuctionId = auctionId;
   liveContent.style.display = "block";
   liveEmpty.style.display = "none";
+  shouldReconnect = true;
   connectWebSocket(auctionId);
 });
 
@@ -531,6 +600,22 @@ function generateIdempotencyKey() {
 }
 
 bidIdempotency.addEventListener("focus", generateIdempotencyKey);
+
+if (bidAddToExisting) {
+  bidAddToExisting.addEventListener("change", () => {
+    if (bidAddToExisting.checked) {
+      bidAmount.removeAttribute("min");
+    } else {
+      const minBidText = minBidInfo.textContent;
+      if (minBidText) {
+        const match = minBidText.match(/[\d.]+/);
+        if (match) {
+          bidAmount.min = parseFloat(match[0]);
+        }
+      }
+    }
+  });
+}
 
 bidForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -581,7 +666,6 @@ bidForm.addEventListener("submit", async (e) => {
   }
 });
 
-
 const auctionsList = document.getElementById("auctions-list");
 const auctionsError = document.getElementById("auctions-error");
 const auctionsSuccess = document.getElementById("auctions-success");
@@ -594,7 +678,6 @@ let currentFilter = "all";
 let allAuctions = [];
 let currentAuction = null;
 
-
 async function loadAuctions() {
   if (!state.user) {
     auctionsError.textContent = "Please authorize first";
@@ -604,13 +687,9 @@ async function loadAuctions() {
 
   try {
     auctionsError.style.display = "none";
-    
-    
     const activeAuctions = await apiRequest("/api/auctions?status=LIVE&limit=100");
     const releasedAuctions = await apiRequest("/api/auctions?status=RELEASED&limit=100");
     const finishedAuctions = await apiRequest("/api/auctions?status=FINISHED&limit=100");
-    
-    
     const allDrafts = await apiRequest("/api/auctions?status=DRAFT&limit=100");
     const userDrafts = allDrafts.filter(auction => auction.creator_id === state.user.tg_id);
     
@@ -782,7 +861,6 @@ async function showAuctionDetail(auctionId) {
   }
 }
 
-
 function editAuction(auctionId) {
   const auction = allAuctions.find(a => a._id === auctionId);
   if (!auction) {
@@ -791,15 +869,12 @@ function editAuction(auctionId) {
     return;
   }
   
-  
   window.location.hash = "edit";
-  
   
   setTimeout(() => {
     fillEditForm(auction);
   }, 100);
 }
-
 
 async function loadAuctionForEdit(auctionId) {
   try {
@@ -815,7 +890,6 @@ async function loadAuctionForEdit(auctionId) {
     }
   }
 }
-
 
 function fillEditForm(auction) {
   const editName = document.getElementById("edit-name");
@@ -840,10 +914,8 @@ function fillEditForm(auction) {
     editStartDatetime.value = formatDateTimeInput(startDate);
   }
   
-  
   if (editForm) editForm.dataset.editId = auction._id;
 }
-
 
 async function releaseAuction(auctionId) {
   if (!confirm("Are you sure you want to release this auction?")) return;
@@ -869,7 +941,6 @@ async function releaseAuction(auctionId) {
   }
 }
 
-
 async function deleteAuction(auctionId) {
   if (!confirm("Are you sure you want to delete this auction? This action cannot be undone.")) return;
   
@@ -892,13 +963,11 @@ async function deleteAuction(auctionId) {
   }
 }
 
-
 function hideAuctionDetail() {
   document.getElementById("auctions-content").style.display = "block";
   auctionDetail.style.display = "none";
   currentAuction = null;
 }
-
 
 filterButtons.forEach(btn => {
   btn.addEventListener('click', () => {
@@ -909,18 +978,15 @@ filterButtons.forEach(btn => {
   });
 });
 
-
 if (auctionDetailBack) {
   auctionDetailBack.addEventListener('click', hideAuctionDetail);
 }
-
 
 function initAuctionsPage() {
   if (window.location.hash === "#auctions" || window.location.hash.slice(1) === "auctions") {
     loadAuctions();
   }
 }
-
 
 const originalShowPage = showPage;
 showPage = function(pageId) {
@@ -929,7 +995,6 @@ showPage = function(pageId) {
     loadAuctions();
   }
 };
-
 
 const editForm = document.getElementById("edit-form");
 const editError = document.getElementById("edit-error");
@@ -959,7 +1024,6 @@ if (editForm) {
       return;
     }
 
-    
     const editStartDatetime = document.getElementById("edit-start-datetime");
     const datetimeValue = editStartDatetime ? editStartDatetime.value.trim() : "";
     if (!datetimeValue) {
@@ -1031,7 +1095,6 @@ if (editCancelBtn) {
     window.location.hash = "auctions";
   });
 }
-
 
 initRouter();
 updateUserInfo();

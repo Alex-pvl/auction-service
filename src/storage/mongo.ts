@@ -10,7 +10,7 @@ import type {
 const auctionStatuses = ["DRAFT", "RELEASED", "LIVE", "FINISHED", "DELETED"] as const;
 const deliveryStatuses = ["PENDING", "DELIVERED", "FAILED"] as const;
 
-const auctionSchema = new mongoose.Schema<AuctionType>(
+const auctionSchema = new mongoose.Schema(
   {
     name: { type: String, default: null },
     creator_id: { type: Number, required: true },
@@ -30,7 +30,11 @@ const auctionSchema = new mongoose.Schema<AuctionType>(
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
 
-const bidSchema = new mongoose.Schema<BidType>(
+auctionSchema.index({ status: 1, start_datetime: 1 });
+auctionSchema.index({ status: 1 });
+auctionSchema.index({ creator_id: 1 });
+
+const bidSchema = new mongoose.Schema(
   {
     auction_id: { type: String, required: true },
     round_id: { type: String, required: true },
@@ -43,7 +47,12 @@ const bidSchema = new mongoose.Schema<BidType>(
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
 
-const roundSchema = new mongoose.Schema<RoundType>({
+bidSchema.index({ auction_id: 1, round_id: 1, amount: -1 });
+bidSchema.index({ auction_id: 1, round_id: 1, user_id: 1 });
+bidSchema.index({ idempotency_key: 1 }, { unique: true });
+bidSchema.index({ auction_id: 1, round_id: 1 });
+
+const roundSchema = new mongoose.Schema({
   auction_id: { type: String, required: true },
   idx: { type: Number, required: true },
   started_at: { type: Date, required: true },
@@ -51,13 +60,17 @@ const roundSchema = new mongoose.Schema<RoundType>({
   extended_until: { type: Date, default: null },
 });
 
-const userSchema = new mongoose.Schema<UserType>({
+roundSchema.index({ auction_id: 1, idx: 1 }, { unique: true });
+roundSchema.index({ auction_id: 1 });
+const userSchema = new mongoose.Schema({
   tg_id: { type: Number, required: true, unique: true },
   username: { type: String, required: true },
   balance: { type: Number, required: true, default: 0 },
 });
 
-const deliveriesSchema = new mongoose.Schema<DeliveriesType>(
+userSchema.index({ username: 1 });
+
+const deliveriesSchema = new mongoose.Schema(
   {
     auction_id: { type: String, required: true },
     round_id: { type: String, required: true },
@@ -67,6 +80,11 @@ const deliveriesSchema = new mongoose.Schema<DeliveriesType>(
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
+
+deliveriesSchema.index({ auction_id: 1 });
+deliveriesSchema.index({ winner_user_id: 1 });
+deliveriesSchema.index({ status: 1 });
+deliveriesSchema.index({ auction_id: 1, round_id: 1, winner_user_id: 1 }, { unique: true });
 
 const itemSchema = new mongoose.Schema(
   {

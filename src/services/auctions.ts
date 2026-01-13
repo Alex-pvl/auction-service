@@ -1,5 +1,10 @@
 import { Auction } from "../storage/mongo.js";
 import type { Auction as AuctionType, AutcionStatus } from "../models/types.js";
+import {
+  getCachedAuction,
+  setCachedAuction,
+  invalidateAuctionCache,
+} from "./cache.js";
 
 export type AuctionCreateInput = Omit<AuctionType, "_id" | "created_at" | "updated_at">;
 export type AuctionUpdateInput = Partial<Omit<AuctionType, "_id" | "created_at" | "updated_at">>;
@@ -10,7 +15,18 @@ export async function listAuctions(limit: number, status?: AutcionStatus) {
 }
 
 export async function getAuctionById(id: string) {
-  return Auction.findById(id).lean();
+  const cached = await getCachedAuction(id);
+  if (cached !== null) {
+    return cached;
+  }
+  
+  const auction = await Auction.findById(id).lean();
+  
+  if (auction) {
+    await setCachedAuction(id, auction);
+  }
+  
+  return auction;
 }
 
 export async function createAuction(input: AuctionCreateInput) {
@@ -18,7 +34,11 @@ export async function createAuction(input: AuctionCreateInput) {
 }
 
 export async function updateAuction(id: string, input: AuctionUpdateInput) {
-  return Auction.findByIdAndUpdate(id, input, { new: true }).lean();
+  const auction = await Auction.findByIdAndUpdate(id, input, { new: true }).lean();
+  if (auction) {
+    await invalidateAuctionCache(id);
+  }
+  return auction;
 }
 
 export async function softDeleteAuction(id: string) {
@@ -26,5 +46,9 @@ export async function softDeleteAuction(id: string) {
 }
 
 export async function releaseAuction(id: string) {
-  return Auction.findByIdAndUpdate(id, { status: "RELEASED" }, { new: true }).lean();
+  const auction = await Auction.findByIdAndUpdate(id, { status: "RELEASED" }, { new: true }).lean();
+  if (auction) {
+    await invalidateAuctionCache(id);
+  }
+  return auction;
 }
