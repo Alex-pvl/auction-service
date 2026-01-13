@@ -37,6 +37,11 @@ class RedisStore {
 }
 
 export function createRateLimiter(redis?: RedisClientType<any, any, any>) {
+  // Отключаем rate limiter для нагрузочного тестирования
+  if (process.env.DISABLE_RATE_LIMIT === "true" || process.env.NODE_ENV === "test") {
+    return (req: any, res: any, next: any) => next();
+  }
+  
   const store = redis ? new RedisStore(redis) : undefined;
   
   return rateLimit({
@@ -58,6 +63,11 @@ export function createRateLimiter(redis?: RedisClientType<any, any, any>) {
 }
 
 export function createStrictRateLimiter(redis?: RedisClientType<any, any, any>) {
+  // Отключаем rate limiter для нагрузочного тестирования
+  if (process.env.DISABLE_RATE_LIMIT === "true" || process.env.NODE_ENV === "test") {
+    return (req: any, res: any, next: any) => next();
+  }
+  
   const store = redis ? new RedisStore(redis) : undefined;
   
   return rateLimit({
@@ -79,6 +89,11 @@ export function createStrictRateLimiter(redis?: RedisClientType<any, any, any>) 
 }
 
 export function createBidRateLimiter(redis?: RedisClientType<any, any, any>) {
+  // Отключаем rate limiter для нагрузочного тестирования
+  if (process.env.DISABLE_RATE_LIMIT === "true" || process.env.NODE_ENV === "test") {
+    return (req: any, res: any, next: any) => next();
+  }
+  
   const store = redis ? new RedisStore(redis) : undefined;
   
   return rateLimit({

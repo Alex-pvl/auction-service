@@ -115,11 +115,23 @@ export async function recalculatePlaces(auction_id: string, round_id: string, se
     .sort({ amount: -1, created_at: 1 })
     .lean();
 
-  const updatePromises = bids.map((bid, index) =>
-    Bid.findByIdAndUpdate(bid._id, { place_id: index + 1 }, { new: true, session: session || undefined })
-  );
+  if (bids.length === 0) {
+    await invalidateTopBidsCache(auction_id, round_id);
+    await invalidateUserPlaceCache(auction_id, round_id);
+    return;
+  }
 
-  await Promise.all(updatePromises);
+  const bulkOps = bids.map((bid, index) => ({
+    updateOne: {
+      filter: { _id: bid._id },
+      update: { $set: { place_id: index + 1 } },
+    },
+  }));
+
+  await Bid.bulkWrite(bulkOps, { 
+    ordered: false,
+    session: session || undefined 
+  });
   
   await invalidateTopBidsCache(auction_id, round_id);
   await invalidateUserPlaceCache(auction_id, round_id);
@@ -130,47 +142,42 @@ export async function createBidWithBalanceDeduction(
   userTgId: number,
   amount: number
 ) {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const { User } = await import("../storage/mongo.js");
+  const existingBidWithKey = await Bid.findOne({
+    auction_id: input.auction_id,
+    round_id: input.round_id,
+    idempotency_key: input.idempotency_key,
+  }).lean();
   
-  try {
-    const { User } = await import("../storage/mongo.js");
-    
-    const user = await User.findOne({ tg_id: userTgId }).session(session).lean();
+  if (existingBidWithKey) {
+    return existingBidWithKey;
+  }
+  
+  const balanceUpdateResult = await User.updateOne(
+    { 
+      tg_id: userTgId,
+      balance: { $gte: amount }
+    },
+    { $inc: { balance: -amount } }
+  );
+  
+  if (balanceUpdateResult.matchedCount === 0) {
+    const user = await User.findOne({ tg_id: userTgId }).lean();
     if (!user) {
       throw new Error("User not found");
     }
-    
-    if (user.balance < amount) {
-      throw new Error("Insufficient balance");
-    }
-    
-    const existingBidWithKey = await Bid.findOne({
-      auction_id: input.auction_id,
-      round_id: input.round_id,
-      idempotency_key: input.idempotency_key,
-    }).session(session).lean();
-    
-    if (existingBidWithKey) {
-      await session.commitTransaction();
-      return existingBidWithKey;
-    }
-    
-    const bid = await createOrUpdateBid(input, session);
-    
-    await User.updateOne(
-      { tg_id: userTgId },
-      { $inc: { balance: -amount } },
-      { session }
-    );
-    
-    await session.commitTransaction();
+    throw new Error("Insufficient balance");
+  }
+  
+  try {
+    const bid = await createOrUpdateBid(input);
     return bid;
   } catch (error) {
-    await session.abortTransaction();
+    await User.updateOne(
+      { tg_id: userTgId },
+      { $inc: { balance: amount } }
+    ).catch(() => {});
     throw error;
-  } finally {
-    session.endSession();
   }
 }
 
@@ -182,64 +189,65 @@ export async function addToBidWithBalanceDeduction(
   additional_amount: number,
   idempotency_key: string
 ) {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const { User } = await import("../storage/mongo.js");
+  const existingUpdate = await Bid.findOne({
+    auction_id,
+    round_id,
+    idempotency_key,
+  }).lean();
   
-  try {
-    const { User } = await import("../storage/mongo.js");
-    
-    const user = await User.findOne({ tg_id: userTgId }).session(session).lean();
+  if (existingUpdate) {
+    return existingUpdate;
+  }
+  
+  const existingBidBefore = await Bid.findOne({
+    auction_id,
+    round_id,
+    user_id,
+  }).lean();
+  
+  if (!existingBidBefore) {
+    throw new Error("Bid not found");
+  }
+  
+  const placeBefore = existingBidBefore.place_id;
+  
+  const balanceUpdateResult = await User.updateOne(
+    { 
+      tg_id: userTgId,
+      balance: { $gte: additional_amount }
+    },
+    { $inc: { balance: -additional_amount } }
+  );
+  
+  if (balanceUpdateResult.matchedCount === 0) {
+    const user = await User.findOne({ tg_id: userTgId }).lean();
     if (!user) {
       throw new Error("User not found");
     }
-    
-    if (user.balance < additional_amount) {
-      throw new Error("Insufficient balance");
-    }
-    
-    const existingBidBefore = await Bid.findOne({
-      auction_id,
-      round_id,
-      user_id,
-    }).session(session).lean();
-    
-    if (!existingBidBefore) {
-      throw new Error("Bid not found");
-    }
-    
-    const placeBefore = existingBidBefore.place_id;
-    
-    const existingUpdate = await Bid.findOne({
-      auction_id,
-      round_id,
-      idempotency_key,
-    }).session(session).lean();
-    
-    if (existingUpdate) {
-      await session.commitTransaction();
-      return existingUpdate;
-    }
-    
-    const bid = await addToBid(auction_id, round_id, user_id, additional_amount, idempotency_key, session);
+    throw new Error("Insufficient balance");
+  }
+  
+  try {
+    const bid = await addToBid(auction_id, round_id, user_id, additional_amount, idempotency_key);
     const placeAfter = bid.place_id;
     
     if (placeBefore === 1 && placeAfter === 1) {
+      await User.updateOne(
+        { tg_id: userTgId },
+        { $inc: { balance: additional_amount } }
+      ).catch(() => {
+      });
       throw new Error("Cannot add to bid: you are still in first place");
     }
     
-    await User.updateOne(
-      { tg_id: userTgId },
-      { $inc: { balance: -additional_amount } },
-      { session }
-    );
-    
-    await session.commitTransaction();
     return bid;
   } catch (error) {
-    await session.abortTransaction();
+    await User.updateOne(
+      { tg_id: userTgId },
+      { $inc: { balance: additional_amount } }
+    ).catch(() => {});
     throw error;
-  } finally {
-    session.endSession();
   }
 }
 

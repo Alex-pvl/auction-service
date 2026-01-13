@@ -2,7 +2,7 @@ import { Auction, Round } from "../storage/mongo.js";
 import type { Auction as AuctionType } from "../models/types.js";
 import type { RedisClientType } from "redis";
 import { getTopBids, isUserInTop3, transferBidsToNextRound } from "./bids.js";
-import { startBotsForAuction, stopBotsForAuction, initializeBots } from "./bots.js";
+import { stopBotsForAuction, initializeBots } from "./bots.js";
 import { broadcastAuctionUpdate } from "./websocket.js";
 import { adjustUserBalanceByTgId } from "./users.js";
 
@@ -62,14 +62,13 @@ async function startDeliveryProcessor() {
         console.error("Error in delivery processor:", error);
       }
     }
-  }, 2000); // Проверяем каждые 2 секунды
+  }, 2000);
 }
 
 async function startBidTransferProcessor() {
   if (!redisClient) return;
 
   bidTransferProcessorInterval = setInterval(async () => {
-    // Не обрабатываем очередь если идет shutdown
     if (isShuttingDown) {
       return;
     }
@@ -102,7 +101,6 @@ async function startBidTransferProcessor() {
         PROCESSING_BID_TRANSFERS.delete(taskKey);
       }
     } catch (error) {
-      // Игнорируем ошибки при shutdown
       if (!isShuttingDown) {
         console.error("Error in bid transfer processor:", error);
       }
@@ -133,7 +131,6 @@ async function queueBidTransfer(
   next_round_id: string,
   winners_per_round: number
 ) {
-  // Если идет shutdown, обрабатываем напрямую без Redis
   if (isShuttingDown || !redisClient || !redisClient.isOpen) {
     await processBidTransfer({ auction_id, current_round_id, next_round_id, winners_per_round });
     return;
@@ -149,7 +146,6 @@ async function queueBidTransfer(
   try {
     await redisClient.rPush(BID_TRANSFER_QUEUE, JSON.stringify(task));
   } catch (error) {
-    // Если Redis недоступен, обрабатываем напрямую
     if (!isShuttingDown) {
       console.error("Error queueing bid transfer, processing directly:", error);
     }
@@ -199,8 +195,6 @@ function startAuctionChangeStream() {
             await finishAuction(auctionId);
           }
           else if (change.updateDescription?.updatedFields?.current_round_idx !== undefined) {
-            const { startBotsForAuction } = await import("./bots.js");
-            await startBotsForAuction(auctionId);
             await setupAuctionTimer(auctionId);
           }
         } else if (change.operationType === "insert" && fullDocument) {
@@ -353,7 +347,6 @@ async function processRoundEnd(auctionId: string, auction: AuctionType) {
       );
     }
     
-    await startBotsForAuction(auctionId);
     await setupAuctionTimer(auctionId);
     await broadcastAuctionUpdate(auctionId);
   } else {
@@ -367,8 +360,6 @@ async function checkTimers() {
     const timer = activeTimers.get(auction._id.toString());
     if (!timer || !timer.timeoutId) {
       await setupAuctionTimer(auction._id.toString());
-      const { startBotsForAuction } = await import("./bots.js");
-      await startBotsForAuction(auction._id.toString());
     } else {
       const currentRound = await Round.findOne({
         auction_id: auction._id.toString(),
@@ -406,7 +397,6 @@ async function startAuction(auctionId: string) {
   await Auction.findByIdAndUpdate(auctionId, { status: "LIVE" });
   await startRound(auctionId, 0);
   await setupAuctionTimer(auctionId);
-  await startBotsForAuction(auctionId);
   await broadcastAuctionUpdate(auctionId);
 }
 

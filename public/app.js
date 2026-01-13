@@ -337,6 +337,10 @@ const liveRemainingItems = document.getElementById("live-remaining-items");
 const liveTimer = document.getElementById("live-timer");
 const topBidsList = document.getElementById("top-bids-list");
 const userBidInfo = document.getElementById("user-bid-info");
+const botsControlSection = document.getElementById("bots-control-section");
+const botsStopBtn = document.getElementById("bots-stop-btn");
+const botsStartBtn = document.getElementById("bots-start-btn");
+const botsStatus = document.getElementById("bots-status");
 const userBidAmount = document.getElementById("user-bid-amount");
 const userBidPlace = document.getElementById("user-bid-place");
 const bidForm = document.getElementById("bid-form");
@@ -442,6 +446,13 @@ function updateLiveAuction(data) {
   liveAuctionItem.textContent = auction.item_name || "-";
   liveAuctionStatus.textContent = auction.status;
   liveRemainingItems.textContent = auction.remaining_items_count ?? "-";
+
+  // Показываем управление ботами только для LIVE аукционов
+  if (auction.status === "LIVE" && botsControlSection) {
+    botsControlSection.style.display = "block";
+  } else if (botsControlSection) {
+    botsControlSection.style.display = "none";
+  }
 
   if (round) {
     const roundNum = round.idx + 1;
@@ -594,6 +605,59 @@ watchForm.addEventListener("submit", async (e) => {
   shouldReconnect = true;
   connectWebSocket(auctionId);
 });
+
+// Bot control handlers
+if (botsStopBtn) {
+  botsStopBtn.addEventListener("click", async () => {
+    if (!state.currentAuctionId) return;
+    
+    botsStopBtn.disabled = true;
+    botsStatus.textContent = "Stopping bots...";
+    botsStatus.style.color = "";
+    
+    try {
+      await apiRequest(`/api/auctions/${state.currentAuctionId}/bots/stop`, {
+        method: "POST",
+      });
+      botsStatus.textContent = "✓ Bots stopped successfully";
+      botsStatus.style.color = "var(--success)";
+    } catch (error) {
+      botsStatus.textContent = `✗ Error: ${error.message}`;
+      botsStatus.style.color = "var(--error)";
+    } finally {
+      botsStopBtn.disabled = false;
+      setTimeout(() => {
+        botsStatus.textContent = "";
+      }, 3000);
+    }
+  });
+}
+
+if (botsStartBtn) {
+  botsStartBtn.addEventListener("click", async () => {
+    if (!state.currentAuctionId) return;
+    
+    botsStartBtn.disabled = true;
+    botsStatus.textContent = "Starting bots...";
+    botsStatus.style.color = "";
+    
+    try {
+      await apiRequest(`/api/auctions/${state.currentAuctionId}/bots/start`, {
+        method: "POST",
+      });
+      botsStatus.textContent = "✓ Bots started successfully";
+      botsStatus.style.color = "var(--success)";
+    } catch (error) {
+      botsStatus.textContent = `✗ Error: ${error.message}`;
+      botsStatus.style.color = "var(--error)";
+    } finally {
+      botsStartBtn.disabled = false;
+      setTimeout(() => {
+        botsStatus.textContent = "";
+      }, 3000);
+    }
+  });
+}
 
 function generateIdempotencyKey() {
   bidIdempotency.value = `bid-${Date.now()}-${Math.random().toString(36).substring(7)}`;

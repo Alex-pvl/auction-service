@@ -26,6 +26,7 @@ import {
 import { handleTop3Bid } from "../services/auction-lifecycle.js";
 import { Round } from "../storage/mongo.js";
 import { broadcastAuctionUpdate } from "../services/websocket.js";
+import { startBotsForAuction, stopBotsForAuction } from "../services/bots.js";
 import {
   getDeliveriesByUser,
   getDeliveriesByAuction,
@@ -826,5 +827,44 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
 
     const deliveries = await getDeliveriesByRound(id, round._id.toString());
     res.json(deliveries);
+  });
+
+  app.post("/api/auctions/:id/bots/stop", strictLimiter, async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const auction = await getAuctionById(id);
+    if (!auction) {
+      res.status(404).json({ error: "auction not found" });
+      return;
+    }
+
+    stopBotsForAuction(id);
+    res.json({ message: "Bots stopped for auction", auction_id: id });
+  });
+
+  app.post("/api/auctions/:id/bots/start", strictLimiter, async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const auction = await getAuctionById(id);
+    if (!auction) {
+      res.status(404).json({ error: "auction not found" });
+      return;
+    }
+
+    if (auction.status !== "LIVE") {
+      res.status(409).json({ error: "auction must be LIVE to start bots" });
+      return;
+    }
+
+    await startBotsForAuction(id);
+    res.json({ message: "Bots started for auction", auction_id: id });
   });
 }
