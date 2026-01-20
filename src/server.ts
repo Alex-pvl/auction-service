@@ -19,12 +19,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Логирование для диагностики
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} | Headers: ${JSON.stringify(req.headers)}`);
-  next();
-});
-
 const redis = createClient({
   url: REDIS_URL,
   socket: {
