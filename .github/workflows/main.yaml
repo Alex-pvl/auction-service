@@ -37,6 +37,10 @@ jobs:
             sleep 15
             chmod +x init-replica-set.sh
             ./init-replica-set.sh
+            rm /etc/nginx/sites-available/tagwaiter.ru
+            cp nginx-tagwaiter.ru.conf /etc/nginx/sites-available/tagwaiter.ru
+            nginx -t
+            systemctl restart nginx
       
 permissions:
   contents: write
