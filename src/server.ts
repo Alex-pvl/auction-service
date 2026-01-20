@@ -135,8 +135,8 @@ async function start() {
   httpServer = createServer(app);
   createWebSocketServer(httpServer);
   await startAuctionLifecycleManager(redis);
-  httpServer.listen(PORT, () => {
-    console.log(`server listening on ${PORT}`);
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    console.log(`server listening on 0.0.0.0:${PORT}`);
     console.log(`WebSocket server available at ws://localhost:${PORT}/ws`);
   });
   
