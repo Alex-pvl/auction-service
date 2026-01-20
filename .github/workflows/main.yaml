@@ -1,0 +1,42 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+      - name: Build and Deploy to server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: 22
+          script: |
+            cd crypto-bot/auction-service
+            git pull
+            export NVM_DIR="$HOME/.nvm"
+            source "$NVM_DIR/nvm.sh"
+            nvm use 22
+            npm i
+            npm run build
+            rm -rf /var/www/tagwaiter.ru/dist/*
+            cp -r public/* /var/www/tagwaiter.ru/dist/
+            docker compose pull || true
+            docker compose down
+            docker compose up -d --build
+            sleep 10
+            docker compose ps
+            docker compose logs --tail=50
+      
+permissions:
+  contents: write

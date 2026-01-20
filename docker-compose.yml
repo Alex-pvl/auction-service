@@ -1,4 +1,23 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - MONGO_URL=mongodb://mongo:27017/auction_service
+      - REDIS_URL=redis://redis:6379
+    env_file:
+      - .env
+    depends_on:
+      - mongo
+      - redis
+    restart: unless-stopped
+    networks:
+      - auction-network
+
   mongo:
     image: mongo:7
     ports:
@@ -6,12 +25,24 @@ services:
     volumes:
       - mongo_data:/data/db
     command: mongod --replSet rs0
+    restart: unless-stopped
+    networks:
+      - auction-network
+
   redis:
     image: redis:7
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - auction-network
+
 volumes:
   mongo_data:
   redis_data:
+
+networks:
+  auction-network:
+    driver: bridge
