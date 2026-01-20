@@ -33,6 +33,16 @@ jobs:
             cp -r public/* /var/www/tagwaiter.ru/dist/
             docker compose pull || true
             docker compose down
+            # Запускаем только MongoDB и Redis сначала
+            docker compose up -d mongo redis
+            # Ждем готовности MongoDB
+            sleep 15
+            # Инициализируем replica set (если еще не инициализирован)
+            docker compose exec -T mongo mongosh --quiet --eval "try { rs.status().ok } catch(e) { 0 }" | grep -q "1" || \
+            docker compose exec -T mongo mongosh --eval "rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]})" || true
+            # Ждем готовности replica set
+            sleep 5
+            # Запускаем API
             docker compose up -d --build
       
 permissions:
