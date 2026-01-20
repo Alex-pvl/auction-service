@@ -34,9 +34,6 @@ jobs:
             docker compose pull || true
             docker compose down
             docker compose up -d --build
-            sleep 10
-            docker compose ps
-            docker compose logs --tail=50
       
 permissions:
   contents: write
