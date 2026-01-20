@@ -16,6 +16,22 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/auction_service
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongo
+      - redis
+    restart: unless-stopped
+
 volumes:
   mongo_data:
   redis_data:

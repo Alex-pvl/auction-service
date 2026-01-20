@@ -32,7 +32,7 @@ jobs:
             rm -rf /var/www/tagwaiter.ru/dist/*
             cp -r public/* /var/www/tagwaiter.ru/dist/
             docker compose down
-            docker compose up -d
+            docker compose up -d mongo redis
             echo "Waiting for MongoDB to start..."
             sleep 15
             chmod +x init-replica-set.sh
@@ -41,6 +41,7 @@ jobs:
             cp nginx-tagwaiter.ru.conf /etc/nginx/sites-available/tagwaiter.ru
             nginx -t
             systemctl restart nginx
+            docker-compose up -d --build api
       
 permissions:
   contents: write
