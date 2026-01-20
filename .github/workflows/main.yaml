@@ -41,7 +41,7 @@ jobs:
             cp nginx-tagwaiter.ru.conf /etc/nginx/sites-available/tagwaiter.ru
             nginx -t
             systemctl restart nginx
-            docker compose up -d --build api
+            docker compose up -d --build
       
 permissions:
   contents: write
