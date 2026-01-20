@@ -2,7 +2,77 @@ const state = {
   user: null,
   currentAuctionId: null,
   ws: null,
+  isTelegram: false,
 };
+
+// Проверка, открыто ли приложение в Telegram
+function isTelegramWebApp() {
+  return typeof window !== 'undefined' && 
+         window.Telegram && 
+         window.Telegram.WebApp;
+}
+
+// Получение Telegram User ID из initData
+function getTelegramUserId() {
+  if (!isTelegramWebApp()) {
+    return null;
+  }
+  
+  const webApp = window.Telegram.WebApp;
+  const initData = webApp.initDataUnsafe;
+  
+  // Пробуем получить user.id из initDataUnsafe
+  if (initData && initData.user && initData.user.id) {
+    return initData.user.id;
+  }
+  
+  // Если нет в initDataUnsafe, пробуем парсить initData строку
+  if (webApp.initData) {
+    try {
+      const params = new URLSearchParams(webApp.initData);
+      const userParam = params.get('user');
+      if (userParam) {
+        const user = JSON.parse(decodeURIComponent(userParam));
+        if (user && user.id) {
+          return user.id;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse initData:', e);
+    }
+  }
+  
+  return null;
+}
+
+// Автоматическая авторизация через Telegram
+async function autoAuthWithTelegram() {
+  const tgUserId = getTelegramUserId();
+  if (!tgUserId) {
+    return false;
+  }
+  
+  try {
+    const user = await apiRequest("/api/users/auth", {
+      method: "POST",
+      body: JSON.stringify({ tg_id: tgUserId }),
+    });
+    state.user = user;
+    state.isTelegram = true;
+    updateUserInfo();
+    
+    // Скрываем форму авторизации, если открыто в Telegram
+    const authFormContainer = document.getElementById("auth-form-container");
+    if (authFormContainer) {
+      authFormContainer.style.display = "none";
+    }
+    
+    return true;
+  } catch (error) {
+    console.error("Auto auth failed:", error);
+    return false;
+  }
+}
 async function apiRequest(path, options = {}) {
   const baseUrl = window.location.origin;
   const response = await fetch(`${baseUrl}${path}`, {
@@ -77,10 +147,45 @@ const authForm = document.getElementById("auth-form");
 const authError = document.getElementById("auth-error");
 const authSuccess = document.getElementById("auth-success");
 const authTgId = document.getElementById("auth-tg-id");
+const authFormContainer = document.getElementById("auth-form-container");
 const balanceForm = document.getElementById("balance-form");
 const balanceAmount = document.getElementById("balance-amount");
 const balanceIncrease = document.getElementById("balance-increase");
 const balanceDecrease = document.getElementById("balance-decrease");
+
+// Инициализация Telegram Web App
+if (isTelegramWebApp()) {
+  const tgWebApp = window.Telegram.WebApp;
+  tgWebApp.ready();
+  tgWebApp.expand();
+  
+  // Пробуем автоматически авторизоваться
+  autoAuthWithTelegram().then((success) => {
+    if (success) {
+      if (authFormContainer) {
+        authFormContainer.style.display = "none";
+      }
+      if (authSuccess) {
+        authSuccess.textContent = `Authorized via Telegram`;
+        authSuccess.style.display = "block";
+      }
+    } else {
+      // Если авторизация не удалась, показываем форму
+      if (authFormContainer) {
+        authFormContainer.style.display = "block";
+      }
+      if (authError) {
+        authError.textContent = "Failed to authorize via Telegram. Please use manual authorization.";
+        authError.style.display = "block";
+      }
+    }
+  });
+} else {
+  // Если не в Telegram, показываем форму авторизации
+  if (authFormContainer) {
+    authFormContainer.style.display = "block";
+  }
+}
 
 authForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -1160,6 +1265,7 @@ if (editCancelBtn) {
   });
 }
 
+// Инициализация при загрузке страницы
 initRouter();
 updateUserInfo();
 initAuctionsPage();

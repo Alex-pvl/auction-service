@@ -46,7 +46,7 @@ export function createRateLimiter(redis?: RedisClientType<any, any, any>) {
   
   return rateLimit({
     windowMs: 60 * 1000,
-    max: 100,
+    max: 300,
     message: "Too many requests, please try again later",
     standardHeaders: true,
     legacyHeaders: false,
@@ -72,7 +72,7 @@ export function createStrictRateLimiter(redis?: RedisClientType<any, any, any>) 
   
   return rateLimit({
     windowMs: 60 * 1000,
-    max: 20,
+    max: 100,
     message: "Too many requests, please try again later",
     standardHeaders: true,
     legacyHeaders: false,
@@ -98,7 +98,7 @@ export function createBidRateLimiter(redis?: RedisClientType<any, any, any>) {
   
   return rateLimit({
     windowMs: 10 * 1000,
-    max: 5,
+    max: 20,
     message: "Too many bids, please slow down",
     standardHeaders: true,
     legacyHeaders: false,

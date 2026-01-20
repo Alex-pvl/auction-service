@@ -2,9 +2,10 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Auction Service</title>
     <link rel="stylesheet" href="/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
     <nav class="nav">
@@ -29,14 +30,16 @@
         <h1>Authorization</h1>
         <div id="auth-error" class="error" style="display: none;"></div>
         <div id="auth-success" class="success" style="display: none;"></div>
-        <form id="auth-form">
-          <div>
-            <label for="auth-tg-id">Telegram User ID</label>
-            <input id="auth-tg-id" type="number" min="1" step="1" placeholder="Enter your Telegram ID" required />
-            <p class="helper">Enter your Telegram user ID to authorize</p>
-          </div>
-          <button type="submit">Authorize</button>
-        </form>
+        <div id="auth-form-container">
+          <form id="auth-form">
+            <div>
+              <label for="auth-tg-id">Telegram User ID</label>
+              <input id="auth-tg-id" type="number" min="1" step="1" placeholder="Enter your Telegram ID" required />
+              <p class="helper">Enter your Telegram user ID to authorize</p>
+            </div>
+            <button type="submit">Authorize</button>
+          </form>
+        </div>
         <div style="margin-top: 24px; padding-top: 24px; border-top: 2px solid var(--ink);">
           <h3 style="font-size: 1.2rem; margin-bottom: 16px;">Balance Control</h3>
           <form id="balance-form">

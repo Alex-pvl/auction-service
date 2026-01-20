@@ -23,6 +23,7 @@ body {
     radial-gradient(circle at 85% 0%, rgba(154, 209, 200, 0.5), transparent 55%),
     linear-gradient(120deg, #f9efe0, #f3e3cb 55%, #edd8bc);
   padding: 0;
+  overflow-x: hidden;
 }
 .nav {
   background: rgba(255, 255, 255, 0.95);
@@ -35,6 +36,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
+  flex-wrap: wrap;
 }
 .nav-links {
   display: flex;
@@ -78,6 +80,8 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   animation: fadeIn 0.3s ease;
+  width: 100%;
+  box-sizing: border-box;
 }
 .page.active {
   display: block;
@@ -100,23 +104,355 @@ body {
   border-radius: 12px;
   max-width: 700px;
   margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 @media (max-width: 768px) {
-  .container {
-    padding: 20px;
-    max-width: 100%;
+  body {
+    font-size: 14px;
   }
+  
+  .nav {
+    padding: 12px 8px;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .nav-links {
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    width: 100%;
+  }
+  
+  .nav-link {
+    flex: 1 1 auto;
+    min-width: calc(50% - 3px);
+    text-align: center;
+  }
+  
+  .nav-link {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+  }
+  
+  .user-info {
+    font-size: 0.8rem;
+    padding: 6px 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+  }
+  
+  .user-info span {
+    font-size: 0.8rem;
+  }
+  
+  .page {
+    padding: 16px 12px;
+  }
+  
+  .container {
+    padding: 16px;
+    max-width: 100%;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  
   .field-row {
     grid-template-columns: 1fr !important;
+    gap: 12px;
   }
+  
   h1 {
-    font-size: 1.8rem;
+    font-size: 1.5rem;
+    margin-bottom: 16px;
   }
+  
   h2 {
-    font-size: 1.2rem;
+    font-size: 1.1rem;
+    margin-bottom: 12px;
   }
+  
+  h3 {
+    font-size: 1rem;
+  }
+  
   label {
+    font-size: 0.8rem;
+    margin-bottom: 6px;
+  }
+  
+  input,
+  select,
+  textarea {
+    padding: 10px 12px;
+    font-size: 0.9rem;
+  }
+  
+  button {
+    padding: 10px 16px;
+    font-size: 0.9rem;
+  }
+  
+  form {
+    gap: 16px;
+  }
+  
+  .helper {
+    font-size: 0.75rem;
+    margin-top: 4px;
+    margin-bottom: 8px;
+  }
+  
+  .error,
+  .success {
+    padding: 10px 12px;
     font-size: 0.85rem;
+    margin-bottom: 16px;
+  }
+  
+  .live-header {
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  
+  .timer {
+    font-size: 2rem;
+    padding: 20px;
+    margin: 16px 0;
+  }
+  
+  .round-info {
+    padding: 12px;
+    margin: 12px 0;
+    gap: 8px;
+    font-size: 0.85rem;
+  }
+  
+  .bid-item {
+    padding: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .bid-place {
+    font-size: 1.1rem;
+  }
+  
+  .bid-amount {
+    font-size: 1rem;
+  }
+  
+  .bid-form-section {
+    padding: 16px;
+    margin-top: 16px;
+  }
+  
+  .watch-form {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .watch-form input {
+    width: 100%;
+  }
+  
+  .auctions-filters {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  
+  .filter-btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+  
+  .auction-card {
+    padding: 12px;
+  }
+  
+  .auction-card-title {
+    font-size: 1rem;
+  }
+  
+  .auction-card-info {
+    font-size: 0.8rem;
+    gap: 6px;
+  }
+  
+  .auction-card-actions {
+    gap: 6px;
+    margin-top: 8px;
+  }
+  
+  .auction-card-actions button {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+  
+  .auction-detail {
+    padding: 16px;
+    margin-top: 16px;
+  }
+  
+  .auction-detail-section {
+    margin-bottom: 16px;
+  }
+  
+  .auction-detail-section h3 {
+    font-size: 1rem;
+    margin-bottom: 8px;
+  }
+  
+  .auction-detail-info {
+    gap: 6px;
+    font-size: 0.85rem;
+  }
+}
+
+/* Дополнительные стили для очень маленьких экранов (Telegram Mini App) */
+@media (max-width: 480px) {
+  body {
+    font-size: 13px;
+  }
+  
+  .nav {
+    padding: 8px 4px;
+  }
+  
+  .nav-link {
+    padding: 5px 8px;
+    font-size: 0.7rem;
+    min-width: calc(50% - 3px);
+  }
+  
+  .user-info {
+    font-size: 0.75rem;
+    padding: 5px 10px;
+  }
+  
+  .page {
+    padding: 12px 8px;
+  }
+  
+  .container {
+    padding: 12px;
+  }
+  
+  h1 {
+    font-size: 1.3rem;
+    margin-bottom: 12px;
+  }
+  
+  h2 {
+    font-size: 1rem;
+  }
+  
+  h3 {
+    font-size: 0.9rem;
+  }
+  
+  .timer {
+    font-size: 1.5rem;
+    padding: 16px;
+  }
+  
+  .round-info {
+    padding: 10px;
+    font-size: 0.8rem;
+  }
+  
+  .bid-item {
+    padding: 10px;
+  }
+  
+  .bid-form-section {
+    padding: 12px;
+  }
+  
+  .live-header {
+    padding: 12px;
+  }
+  
+  .auction-card {
+    padding: 10px;
+  }
+  
+  .auction-detail {
+    padding: 12px;
+  }
+  
+  input,
+  select,
+  textarea {
+    padding: 8px 10px;
+    font-size: 0.85rem;
+  }
+  
+  button {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+  
+  .field-row {
+    gap: 10px;
+  }
+  
+  form {
+    gap: 12px;
+  }
+}
+
+/* Предотвращение горизонтального скролла */
+* {
+  max-width: 100%;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Улучшение читаемости на мобильных */
+@media (max-width: 768px) {
+  .top-bids {
+    gap: 8px;
+  }
+  
+  .bid-item {
+    word-break: break-word;
+  }
+  
+  .auction-card-info div {
+    word-break: break-word;
+  }
+  
+  .auction-detail-info div {
+    word-break: break-word;
+  }
+  
+  .round-info div {
+    word-break: break-word;
+  }
+}
+
+/* Улучшение для очень маленьких экранов */
+@media (max-width: 480px) {
+  .top-bids {
+    gap: 6px;
+  }
+  
+  .bid-item {
+    font-size: 0.85rem;
+  }
+  
+  .bid-place {
+    font-size: 1rem;
+  }
+  
+  .bid-amount {
+    font-size: 0.9rem;
   }
 }
 h1 {
@@ -166,6 +502,14 @@ input[type="time"] {
   min-width: 200px;
   font-size: 0.95rem;
 }
+@media (max-width: 768px) {
+  input[type="datetime-local"],
+  input[type="date"],
+  input[type="time"] {
+    min-width: 0;
+    width: 100%;
+  }
+}
 /* Принудительно используем 24-часовой формат для времени */
 input[type="time"] {
   font-variant-numeric: tabular-nums;
@@ -182,6 +526,12 @@ input[type="time"]::-moz-calendar-picker-indicator {
 }
 input[type="number"] {
   min-width: 120px;
+}
+@media (max-width: 768px) {
+  input[type="number"] {
+    min-width: 0;
+    width: 100%;
+  }
 }
 textarea {
   min-height: 100px;
@@ -252,6 +602,8 @@ button.secondary {
 .live-container {
   max-width: 1000px;
   margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 .live-header {
   background: linear-gradient(135deg, #fff8ee 0%, #ffe8b8 100%);
