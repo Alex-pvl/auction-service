@@ -32,6 +32,7 @@ jobs:
             rm -rf /var/www/tagwaiter.ru/dist/*
             cp -r public/* /var/www/tagwaiter.ru/dist/
             docker compose down
+            docker compose up -d
             echo "Waiting for MongoDB to start..."
             sleep 15
             chmod +x init-replica-set.sh
