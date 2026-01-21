@@ -33,6 +33,7 @@ import {
   getDeliveriesByRound,
   getDeliveryById,
   getDeliveryStats,
+  getDeliveriesByUserAndAuction,
 } from "../services/deliveries.js";
 
 const auctionStatuses = new Set(["DRAFT", "RELEASED", "LIVE", "FINISHED", "DELETED"]);
@@ -118,7 +119,21 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
       }
     }
 
-    res.json(auction);
+    const response: any = { ...auction };
+    
+    // Добавляем список выигранных призов пользователя
+    if (userId) {
+      const user = await getUserByTgId(userId);
+      if (user) {
+        const userDeliveries = await getDeliveriesByUserAndAuction(user._id.toString(), id);
+        const wonItems = userDeliveries.map((delivery, index) => 
+          `${delivery.item_name} #${index + 1}`
+        );
+        response.user_won_items = wonItems;
+      }
+    }
+
+    res.json(response);
   });
 
   app.post("/api/auctions", strictLimiter, async (req, res) => {
@@ -635,11 +650,11 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
         }
       }
       
-      if (auction.current_round_idx === 0 && isBidUpdate) {
+      if (auction.current_round_idx === 0) {
         const userPlace = await getUserPlace(id, roundId, user._id.toString());
         const isTop3 = userPlace !== null && userPlace <= 3;
         if (isTop3) {
-          await handleTop3Bid(id, roundId, user._id.toString(), true);
+          await handleTop3Bid(id, roundId, user._id.toString(), isBidUpdate);
         }
       }
 

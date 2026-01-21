@@ -1009,6 +1009,10 @@ async function showAuctionDetail(auctionId) {
     const startDate = new Date(auction.start_datetime).toLocaleString();
     const endDate = auction.planned_end_datetime ? new Date(auction.planned_end_datetime).toLocaleString() : 'N/A';
     
+    const wonItemsHtml = auction.user_won_items && auction.user_won_items.length > 0
+      ? `<div><strong>Won Items:</strong><ul style="margin: 4px 0; padding-left: 20px;">${auction.user_won_items.map(item => `<li>${item}</li>`).join('')}</ul></div>`
+      : '';
+    
     auctionDetailContent.innerHTML = `
       <div class="auction-detail-section">
         <h3>General Information</h3>
@@ -1017,6 +1021,7 @@ async function showAuctionDetail(auctionId) {
           <div><strong>Item:</strong> ${auction.item_name}</div>
           <div><strong>Status:</strong> <span class="auction-card-status ${auction.status}">${auction.status}</span></div>
           <div><strong>ID:</strong> ${auction._id}</div>
+          ${wonItemsHtml}
         </div>
       </div>
       

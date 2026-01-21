@@ -122,6 +122,15 @@ export async function getDeliveriesByRound(
     .lean();
 }
 
+export async function getDeliveriesByUserAndAuction(
+  userId: string,
+  auctionId: string
+): Promise<DeliveriesType[]> {
+  return Deliveries.find({ winner_user_id: userId, auction_id: auctionId })
+    .sort({ created_at: 1 })
+    .lean();
+}
+
 export async function getDeliveryById(deliveryId: string): Promise<DeliveriesType | null> {
   return Deliveries.findById(deliveryId).lean();
 }

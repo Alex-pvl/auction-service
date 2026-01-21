@@ -663,8 +663,6 @@ export async function handleTop3Bid(auctionId: string, roundId: string, userId: 
 
   const inTop3 = await isUserInTop3(auctionId, roundId, userId);
   if (!inTop3) return false;
-  
-  if (!isUpdate) return false;
 
   const now = Date.now();
   const actualEndTime = round.extended_until 
@@ -700,7 +698,7 @@ export async function handleTop3Bid(auctionId: string, roundId: string, userId: 
       });
       
       console.log(
-        `Anti-sniping: Extended round ${round.idx} for auction ${auctionId} until ${new Date(newExtendedUntil).toISOString()} (top-3 user ${userId} rebid)`
+        `Anti-sniping: Extended round ${round.idx} for auction ${auctionId} until ${new Date(newExtendedUntil).toISOString()} (top-3 user ${userId} ${isUpdate ? 'rebid' : 'bid'})`
       );
       
       await setupAuctionTimer(auctionId);
