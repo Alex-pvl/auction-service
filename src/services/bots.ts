@@ -117,7 +117,30 @@ export async function initializeBots(redis?: RedisClientType<any, any, any>) {
   console.log(`Bot distribution:`, strategyCounts);
   
   if (redisClient) {
-    startBotBidProcessor();
+    // Проверяем, открыт ли Redis, если нет - ждем
+    if (redisClient.isOpen) {
+      startBotBidProcessor();
+    } else {
+      console.log("Redis client not open yet, will start processor when Redis connects...");
+      // Попробуем запустить процессор позже, когда Redis откроется
+      const checkRedis = setInterval(() => {
+        if (redisClient && redisClient.isOpen && !botBidProcessorInterval) {
+          console.log("Redis client is now open, starting bot bid processor...");
+          startBotBidProcessor();
+          clearInterval(checkRedis);
+        }
+      }, 1000);
+      
+      // Остановим проверку через 30 секунд, если Redis так и не откроется
+      setTimeout(() => {
+        clearInterval(checkRedis);
+        if (!botBidProcessorInterval && redisClient && redisClient.isOpen) {
+          startBotBidProcessor();
+        }
+      }, 30000);
+    }
+  } else {
+    console.log("Bot bid processor will run in direct mode (no Redis queue)");
   }
   
   console.log(`Bot system initialized. Bots will be created and started when auctions begin.`);
@@ -234,6 +257,8 @@ export async function startBotsForAuction(auctionId: string) {
   const shuffledBots = [...BOT_CONFIGS].sort(() => Math.random() - 0.5);
   const botsToStart = shuffledBots.slice(0, maxConcurrentBots);
   
+  console.log(`Scheduling ${botsToStart.length} bots for auction ${auctionId}`);
+  
   for (const config of botsToStart) {
     const initialDelay = Math.random() * 2000; 
     const interval = getBotInterval(config);
@@ -254,6 +279,8 @@ export async function startBotsForAuction(auctionId: string) {
 
     activeBots.set(`${auctionId}-${config.tg_id}-timeout`, timeout as any);
   }
+  
+  console.log(`Scheduled ${botsToStart.length} bots, first bids will start in 0-2 seconds`);
 }
 
 export function stopBotsForAuction(auctionId: string) {
@@ -308,7 +335,7 @@ async function scheduleBotBid(auctionId: string, config: BotConfig) {
       if (!isShuttingDown) {
         console.error("Redis lock error:", error);
       }
-      return;
+      // Продолжаем выполнение даже если блокировка не удалась
     }
   }
   
@@ -316,7 +343,7 @@ async function scheduleBotBid(auctionId: string, config: BotConfig) {
     return;
   }
   
-  if (redisClient && !isShuttingDown && redisClient.isOpen) {
+  if (redisClient && !isShuttingDown && redisClient.isOpen && botBidProcessorInterval) {
     try {
       await redisClient.rPush(
         BOT_BID_QUEUE,
@@ -326,14 +353,26 @@ async function scheduleBotBid(auctionId: string, config: BotConfig) {
       if (!isShuttingDown) {
         console.error("Redis queue error:", error);
       }
+      // Если очередь не работает, выполняем напрямую
+      await executeBotBid(auctionId, config);
     }
   } else {
+    // Выполняем напрямую если Redis недоступен или процессор не запущен
     await executeBotBid(auctionId, config);
   }
 }
 
 function startBotBidProcessor() {
-  if (!redisClient) return;
+  if (!redisClient) {
+    console.warn("Bot bid processor not started: Redis client not available");
+    return;
+  }
+  
+  if (botBidProcessorInterval) {
+    clearInterval(botBidProcessorInterval);
+  }
+  
+  console.log("Starting bot bid processor...");
   botBidProcessorInterval = setInterval(async () => {
     if (isShuttingDown) {
       return;
@@ -444,7 +483,13 @@ async function executeBotBid(auctionId: string, config: BotConfig) {
       Math.floor(auction.winners_per_round)
     );
     
-    if (bidAmount < minBidForRound || bidAmount > botUser.balance) {
+    if (!bidAmount || bidAmount < minBidForRound || bidAmount > botUser.balance) {
+      return;
+    }
+    
+    // Убеждаемся, что bidAmount - целое число
+    const finalBidAmount = Math.round(bidAmount);
+    if (finalBidAmount < minBidForRound || finalBidAmount > botUser.balance) {
       return;
     }
 
@@ -453,7 +498,7 @@ async function executeBotBid(auctionId: string, config: BotConfig) {
 
     let bidUpdated = false;
     if (existingBid) {
-      const additionalAmount = bidAmount - existingBid.amount;
+      const additionalAmount = finalBidAmount - existingBid.amount;
       if (additionalAmount > 0) {
         await addToBid(
           auctionId,
@@ -470,15 +515,15 @@ async function executeBotBid(auctionId: string, config: BotConfig) {
         auction_id: auctionId,
         round_id: currentRound._id.toString(),
         user_id: botUser._id.toString(),
-        amount: bidAmount,
+        amount: finalBidAmount,
         idempotency_key: idempotencyKey,
       });
-      await adjustUserBalanceByTgId(config.tg_id, -bidAmount);
+      await adjustUserBalanceByTgId(config.tg_id, -finalBidAmount);
       bidUpdated = true;
     }
     
     if (bidUpdated) {
-      console.log(`Bot ${config.username} placed bid ${bidAmount.toFixed(2)} in auction ${auctionId}`);
+      console.log(`Bot ${config.username} placed bid ${finalBidAmount.toFixed(2)} in auction ${auctionId}`);
       const existingTimeout = pendingBroadcasts.get(auctionId);
       if (existingTimeout) {
         clearTimeout(existingTimeout);
@@ -499,7 +544,7 @@ async function executeBotBid(auctionId: string, config: BotConfig) {
         const lockKey = `${BOT_LOCK_PREFIX}${auctionId}-${config.tg_id}`;
         await redisClient.del(lockKey);
       } catch (error) {
-        // do nothig
+        // do nothing
       }
     }
   }
@@ -560,9 +605,12 @@ async function calculateBotBidAmount(
   if (allBids.length === 0) {
     return minBidForRound;
   }
-  const lastTopBid = allBids[winnersPerRound - 1];
+  
+  // Безопасно получаем последнюю ставку из топ-N
+  const lastTopBid = allBids.length >= winnersPerRound ? allBids[winnersPerRound - 1] : null;
   const currentBidAmount = userBid?.amount || 0;
   let targetAmount: number;
+  
   if (lastTopBid) {
     const minAmountToBeat = lastTopBid.amount;
     const neededAmount = minAmountToBeat - currentBidAmount;
@@ -597,16 +645,17 @@ async function calculateBotBidAmount(
       targetAmount = minAmountToBeat * marginMultiplier;
     }
   } else {
+    // Если ставок меньше чем winnersPerRound, используем минимальную ставку или немного больше
     targetAmount = minBidForRound;
   }
+  
   targetAmount = Math.max(targetAmount, minBidForRound);
   const minAmount = minBidForRound * config.min_bid_multiplier;
   const maxAmount = minBidForRound * config.max_bid_multiplier;
   
-  if (targetAmount < minAmount && allBids.length >= winnersPerRound) {
-    targetAmount = Math.max(targetAmount, minBidForRound);
-  } else {
-    targetAmount = Math.max(targetAmount, minAmount);
+  // Убеждаемся, что targetAmount находится в допустимых пределах
+  if (targetAmount < minAmount) {
+    targetAmount = Math.max(minAmount, minBidForRound);
   }
   
   targetAmount = Math.min(targetAmount, maxAmount);

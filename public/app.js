@@ -444,7 +444,6 @@ const topBidsList = document.getElementById("top-bids-list");
 const userBidInfo = document.getElementById("user-bid-info");
 const botsControlSection = document.getElementById("bots-control-section");
 const botsStopBtn = document.getElementById("bots-stop-btn");
-const botsStartBtn = document.getElementById("bots-start-btn");
 const botsStatus = document.getElementById("bots-status");
 const userBidAmount = document.getElementById("user-bid-amount");
 const userBidPlace = document.getElementById("user-bid-place");
@@ -716,7 +715,6 @@ watchForm.addEventListener("submit", async (e) => {
 // Bot control handlers
 function initBotControls() {
   const botsStopBtnEl = document.getElementById("bots-stop-btn");
-  const botsStartBtnEl = document.getElementById("bots-start-btn");
   const botsStatusEl = document.getElementById("bots-status");
   
   if (botsStopBtnEl && !botsStopBtnEl.dataset.listenerAttached) {
@@ -754,50 +752,6 @@ function initBotControls() {
         }
       } finally {
         botsStopBtnEl.disabled = false;
-        setTimeout(() => {
-          if (botsStatusEl) {
-            botsStatusEl.textContent = "";
-          }
-        }, 3000);
-      }
-    });
-  }
-
-  if (botsStartBtnEl && !botsStartBtnEl.dataset.listenerAttached) {
-    botsStartBtnEl.dataset.listenerAttached = "true";
-    botsStartBtnEl.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      if (!state.currentAuctionId) {
-        if (botsStatusEl) {
-          botsStatusEl.textContent = "No auction selected";
-          botsStatusEl.style.color = "var(--error)";
-        }
-        return;
-      }
-      
-      botsStartBtnEl.disabled = true;
-      if (botsStatusEl) {
-        botsStatusEl.textContent = "Starting bots...";
-        botsStatusEl.style.color = "";
-      }
-      
-      try {
-        await apiRequest(`/api/auctions/${state.currentAuctionId}/bots/start`, {
-          method: "POST",
-        });
-        if (botsStatusEl) {
-          botsStatusEl.textContent = "✓ Bots started successfully";
-          botsStatusEl.style.color = "var(--success)";
-        }
-      } catch (error) {
-        if (botsStatusEl) {
-          botsStatusEl.textContent = `✗ Error: ${error.message}`;
-          botsStatusEl.style.color = "var(--error)";
-        }
-      } finally {
-        botsStartBtnEl.disabled = false;
         setTimeout(() => {
           if (botsStatusEl) {
             botsStatusEl.textContent = "";
