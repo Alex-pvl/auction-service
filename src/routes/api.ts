@@ -34,6 +34,7 @@ import {
   getDeliveryById,
   getDeliveryStats,
   getDeliveriesByUserAndAuction,
+  getUserWonItemsWithNumbers,
 } from "../services/deliveries.js";
 
 const auctionStatuses = new Set(["DRAFT", "RELEASED", "LIVE", "FINISHED", "DELETED"]);
@@ -121,13 +122,13 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
 
     const response: any = { ...auction };
     
-    // Добавляем список выигранных призов пользователя
+    // Добавляем список выигранных призов пользователя с глобальными номерами айтемов
     if (userId) {
       const user = await getUserByTgId(userId);
       if (user) {
-        const userDeliveries = await getDeliveriesByUserAndAuction(user._id.toString(), id);
-        response.user_won_items = userDeliveries.map((delivery, index) => 
-          `${delivery.item_name} #${index + 1}`
+        const wonItems = await getUserWonItemsWithNumbers(user._id.toString(), id);
+        response.user_won_items = wonItems.map(item => 
+          `${item.item_name} #${item.item_no}`
         );
       } else {
         response.user_won_items = [];
