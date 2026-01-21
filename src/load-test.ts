@@ -272,20 +272,6 @@ async function runLoadTest(config: TestConfig): Promise<TestResult> {
   console.log(`  Rounds: ${auction.rounds_count || 'N/A'}`);
   console.log(`  Winners per round: ${auction.winners_per_round || 'N/A'}\n`);
 
-  console.log("Stopping bots for load testing...");
-  const stopBotsResponse = await makeRequest(
-    `${config.baseUrl}/api/auctions/${auctionId}/bots/stop`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    }
-  );
-  if (stopBotsResponse.status === 200) {
-    console.log("✓ Bots stopped\n");
-  } else {
-    console.warn(`⚠ Could not stop bots: ${stopBotsResponse.error}\n`);
-  }
-
   console.log("Creating users...");
   const userIds: number[] = [];
   const userStartId = 1000000;

@@ -442,10 +442,6 @@ const liveRemainingItems = document.getElementById("live-remaining-items");
 const liveTimer = document.getElementById("live-timer");
 const topBidsList = document.getElementById("top-bids-list");
 const userBidInfo = document.getElementById("user-bid-info");
-const botsControlSection = document.getElementById("bots-control-section");
-const botsStartBtn = document.getElementById("bots-start-btn");
-const botsStopBtn = document.getElementById("bots-stop-btn");
-const botsStatus = document.getElementById("bots-status");
 const userBidAmount = document.getElementById("user-bid-amount");
 const userBidPlace = document.getElementById("user-bid-place");
 const bidForm = document.getElementById("bid-form");
@@ -464,8 +460,15 @@ function formatTime(ms) {
 
 let reconnectTimeout = null;
 let shouldReconnect = true;
+let isConnecting = false;
 
 function connectWebSocket(auctionId) {
+  // Защита от множественных одновременных подключений
+  if (isConnecting) {
+    console.log("WebSocket connection already in progress, skipping...");
+    return;
+  }
+
   if (state.ws) {
     shouldReconnect = false;
     state.ws.close();
@@ -475,6 +478,7 @@ function connectWebSocket(auctionId) {
     }
   }
 
+  isConnecting = true;
   shouldReconnect = true;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -482,8 +486,10 @@ function connectWebSocket(auctionId) {
   state.ws = new WebSocket(wsUrl);
 
   state.ws.onopen = () => {
+    isConnecting = false;
     wsStatus.classList.remove("disconnected");
     wsStatus.classList.add("connected");
+    console.log("WebSocket connected successfully");
     state.ws.send(JSON.stringify({
       type: "subscribe",
       auction_id: auctionId,
@@ -493,27 +499,36 @@ function connectWebSocket(auctionId) {
 
   state.ws.onmessage = (event) => {
     try {
-      const data = JSON.parse(event.data);
-      if (data.type === "auction_state") {
-        updateLiveAuction(data);
-      } else if (data.type === "time_update") {
-        updateTimer(data);
-      } else if (data.type === "pong") {
-        
-      } else if (data.type === "error") {
-        console.error("WebSocket error:", data.message);
+      // WebSocket ping/pong фреймы обрабатываются автоматически браузером
+      // Но если приходит текстовое сообщение, парсим его как JSON
+      if (typeof event.data === 'string') {
+        const data = JSON.parse(event.data);
+        if (data.type === "auction_state") {
+          updateLiveAuction(data);
+        } else if (data.type === "time_update") {
+          updateTimer(data);
+        } else if (data.type === "pong") {
+          // Ответ на ping сообщение (не фрейм)
+        } else if (data.type === "error") {
+          console.error("WebSocket error:", data.message);
+        }
       }
     } catch (error) {
       console.error("Error parsing WebSocket message:", error);
     }
   };
 
-  state.ws.onclose = () => {
+  state.ws.onclose = (event) => {
+    isConnecting = false;
+    console.log("WebSocket closed:", event.code, event.reason || "No reason");
     wsStatus.classList.remove("connected");
     wsStatus.classList.add("disconnected");
-    if (shouldReconnect && state.currentAuctionId) {
+    if (shouldReconnect && state.currentAuctionId && !reconnectTimeout) {
+      // Увеличиваем задержку переподключения, чтобы избежать бесконечного цикла
       reconnectTimeout = setTimeout(() => {
-        if (shouldReconnect && state.currentAuctionId) {
+        reconnectTimeout = null;
+        if (shouldReconnect && state.currentAuctionId && !isConnecting) {
+          console.log("Reconnecting WebSocket...");
           connectWebSocket(state.currentAuctionId);
         }
       }, 3000);
@@ -521,6 +536,7 @@ function connectWebSocket(auctionId) {
   };
 
   state.ws.onerror = (error) => {
+    isConnecting = false;
     console.error("WebSocket error:", error);
     wsStatus.classList.remove("connected");
     wsStatus.classList.add("disconnected");
@@ -551,15 +567,6 @@ function updateLiveAuction(data) {
   liveAuctionItem.textContent = auction.item_name || "-";
   liveAuctionStatus.textContent = auction.status;
   liveRemainingItems.textContent = auction.remaining_items_count ?? "-";
-
-  // Показываем управление ботами только для LIVE аукционов
-  if (auction.status === "LIVE" && botsControlSection) {
-    botsControlSection.style.display = "block";
-    // Переинициализируем обработчики при показе секции
-    initBotControls();
-  } else if (botsControlSection) {
-    botsControlSection.style.display = "none";
-  }
 
   if (round) {
     const roundNum = round.idx + 1;
@@ -712,110 +719,6 @@ watchForm.addEventListener("submit", async (e) => {
   shouldReconnect = true;
   connectWebSocket(auctionId);
 });
-
-// Bot control handlers
-function initBotControls() {
-  const botsStartBtnEl = document.getElementById("bots-start-btn");
-  const botsStopBtnEl = document.getElementById("bots-stop-btn");
-  const botsStatusEl = document.getElementById("bots-status");
-  
-  // Start Bots button
-  if (botsStartBtnEl && !botsStartBtnEl.dataset.listenerAttached) {
-    botsStartBtnEl.dataset.listenerAttached = "true";
-    botsStartBtnEl.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      if (!state.currentAuctionId) {
-        if (botsStatusEl) {
-          botsStatusEl.textContent = "No auction selected";
-          botsStatusEl.style.color = "var(--error)";
-        }
-        return;
-      }
-      
-      botsStartBtnEl.disabled = true;
-      if (botsStopBtnEl) botsStopBtnEl.disabled = true;
-      if (botsStatusEl) {
-        botsStatusEl.textContent = "Starting bots...";
-        botsStatusEl.style.color = "";
-      }
-      
-      try {
-        await apiRequest(`/api/auctions/${state.currentAuctionId}/bots/start`, {
-          method: "POST",
-        });
-        if (botsStatusEl) {
-          botsStatusEl.textContent = "✓ Bots started successfully";
-          botsStatusEl.style.color = "var(--success)";
-        }
-      } catch (error) {
-        if (botsStatusEl) {
-          botsStatusEl.textContent = `✗ Error: ${error.message}`;
-          botsStatusEl.style.color = "var(--error)";
-        }
-      } finally {
-        botsStartBtnEl.disabled = false;
-        if (botsStopBtnEl) botsStopBtnEl.disabled = false;
-        setTimeout(() => {
-          if (botsStatusEl) {
-            botsStatusEl.textContent = "";
-          }
-        }, 3000);
-      }
-    });
-  }
-  
-  // Stop Bots button
-  if (botsStopBtnEl && !botsStopBtnEl.dataset.listenerAttached) {
-    botsStopBtnEl.dataset.listenerAttached = "true";
-    botsStopBtnEl.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      if (!state.currentAuctionId) {
-        if (botsStatusEl) {
-          botsStatusEl.textContent = "No auction selected";
-          botsStatusEl.style.color = "var(--error)";
-        }
-        return;
-      }
-      
-      botsStopBtnEl.disabled = true;
-      if (botsStartBtnEl) botsStartBtnEl.disabled = true;
-      if (botsStatusEl) {
-        botsStatusEl.textContent = "Stopping bots...";
-        botsStatusEl.style.color = "";
-      }
-      
-      try {
-        await apiRequest(`/api/auctions/${state.currentAuctionId}/bots/stop`, {
-          method: "POST",
-        });
-        if (botsStatusEl) {
-          botsStatusEl.textContent = "✓ Bots stopped successfully";
-          botsStatusEl.style.color = "var(--success)";
-        }
-      } catch (error) {
-        if (botsStatusEl) {
-          botsStatusEl.textContent = `✗ Error: ${error.message}`;
-          botsStatusEl.style.color = "var(--error)";
-        }
-      } finally {
-        botsStopBtnEl.disabled = false;
-        if (botsStartBtnEl) botsStartBtnEl.disabled = false;
-        setTimeout(() => {
-          if (botsStatusEl) {
-            botsStatusEl.textContent = "";
-          }
-        }, 3000);
-      }
-    });
-  }
-}
-
-// Инициализируем обработчики ботов при загрузке
-initBotControls();
 
 function generateIdempotencyKey() {
   bidIdempotency.value = `bid-${Date.now()}-${Math.random().toString(36).substring(7)}`;
@@ -1328,6 +1231,25 @@ if (editCancelBtn) {
     window.location.hash = "auctions";
   });
 }
+
+// Функция для правильного закрытия WebSocket соединения
+function disconnectWebSocket() {
+  shouldReconnect = false;
+  isConnecting = false;
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+    reconnectTimeout = null;
+  }
+  if (state.ws) {
+    state.ws.close();
+    state.ws = null;
+  }
+}
+
+// Очистка при закрытии страницы
+window.addEventListener("beforeunload", () => {
+  disconnectWebSocket();
+});
 
 // Инициализация при загрузке страницы
 initRouter();

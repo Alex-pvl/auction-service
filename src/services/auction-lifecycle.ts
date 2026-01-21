@@ -2,7 +2,6 @@ import { Auction, Round } from "../storage/mongo.js";
 import type { Auction as AuctionType } from "../models/types.js";
 import type { RedisClientType } from "redis";
 import { getTopBids, isUserInTop3, transferBidsToNextRound } from "./bids.js";
-import { stopBotsForAuction, initializeBots, createAndStartBotsForAuction } from "./bots.js";
 import { broadcastAuctionUpdate } from "./websocket.js";
 import { adjustUserBalanceByTgId } from "./users.js";
 
@@ -34,8 +33,6 @@ export async function startAuctionLifecycleManager(redis?: RedisClientType<any, 
     redisClient = redis;
     startBidTransferProcessor();
   }
-  
-  await initializeBots(redis);
   
   await initializeExistingAuctions();
   
@@ -167,7 +164,6 @@ async function initializeExistingAuctions() {
   
   const liveAuctions = await Auction.find({ status: "LIVE" }).lean();
   for (const auction of liveAuctions) {
-    await createAndStartBotsForAuction(auction._id.toString());
     await setupAuctionTimer(auction._id.toString());
   }
 }
@@ -397,7 +393,6 @@ async function startAuction(auctionId: string) {
   console.log(`Starting auction ${auctionId}`);
   await Auction.findByIdAndUpdate(auctionId, { status: "LIVE" });
   await startRound(auctionId, 0);
-  await createAndStartBotsForAuction(auctionId);
   await setupAuctionTimer(auctionId);
   await broadcastAuctionUpdate(auctionId);
 }
@@ -587,25 +582,45 @@ async function finishAuction(auctionId: string) {
           let maxAmountSoFar = 0;
           
           for (const round of allRounds) {
+            // Проверяем, выиграл ли пользователь в этом раунде
+            const winnersCount = Math.floor(auction.winners_per_round);
+            const topBids = await getTopBids(auctionId, round._id.toString(), winnersCount);
+            const winnerUserIds = new Set(topBids.map(bid => bid.user_id));
+            const userWonInRound = winnerUserIds.has(userId);
+            
+            // Если пользователь выиграл в раунде, его ставка не должна учитываться в возврате
+            // (он получил товар за эту ставку), и сбрасываем maxAmountSoFar
+            if (userWonInRound) {
+              maxAmountSoFar = 0;
+              continue;
+            }
+            
+            // Получаем все ставки пользователя в раунде, сортируем по сумме
             const userBidsInRound = await Bid.find({
               auction_id: auctionId,
               round_id: round._id.toString(),
               user_id: userId,
-            }).sort({ amount: -1 }).limit(1).lean();
+            }).sort({ amount: -1 }).lean();
             
             if (userBidsInRound.length > 0) {
-              const bid = userBidsInRound[0];
-              const currentRoundAmount = bid.amount;
+              // Находим максимальную сумму в раунде (может быть как новая, так и трансферная ставка)
+              const maxBid = userBidsInRound[0];
+              const currentRoundAmount = maxBid.amount;
               
-              const isTransferred = bid.idempotency_key?.startsWith("transfer-");
+              // Проверяем, есть ли в раунде новая ставка (не трансферная)
+              const hasNewBid = userBidsInRound.some(bid => !bid.idempotency_key?.startsWith("transfer-"));
               
-              if (!isTransferred) {
+              // Если есть новая ставка, то пользователь потратил инкремент от предыдущей максимальной суммы
+              // Если только трансферная ставка, то это перенесенная сумма из предыдущего раунда, не добавляем к totalSpent
+              if (hasNewBid) {
                 const increment = currentRoundAmount - maxAmountSoFar;
                 if (increment > 0) {
                   totalSpent += increment;
                 }
                 maxAmountSoFar = currentRoundAmount;
               } else {
+                // Только трансферная ставка - обновляем maxAmountSoFar, но не добавляем к totalSpent
+                // (т.к. эта сумма уже была учтена в предыдущем раунде)
                 if (currentRoundAmount > maxAmountSoFar) {
                   maxAmountSoFar = currentRoundAmount;
                 }
@@ -647,8 +662,6 @@ async function finishAuction(auctionId: string) {
       if (timer.intervalId) clearInterval(timer.intervalId);
       activeTimers.delete(auctionId);
     }
-    
-    stopBotsForAuction(auctionId);
   } finally {
     PROCESSING_AUCTIONS.delete(auctionId);
   }
@@ -748,7 +761,6 @@ export async function shutdownAuctionLifecycle(): Promise<void> {
     if (timer.intervalId) {
       clearInterval(timer.intervalId);
     }
-    await stopBotsForAuction(auctionId);
   }
   activeTimers.clear();
   

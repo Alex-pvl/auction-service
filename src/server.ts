@@ -8,7 +8,6 @@ import { createServer } from "node:http";
 import { registerApiRoutes } from "./routes/api.js";
 import { startAuctionLifecycleManager, shutdownAuctionLifecycle } from "./services/auction-lifecycle.js";
 import { createWebSocketServer, shutdownWebSocketServer } from "./services/websocket.js";
-import { shutdownBots } from "./services/bots.js";
 import { setRedisClient } from "./services/cache.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -80,7 +79,6 @@ async function shutdown(signal: string) {
     }
     
     await shutdownWebSocketServer();
-    await shutdownBots();
     await shutdownAuctionLifecycle();
     
     if (redis.isOpen) {

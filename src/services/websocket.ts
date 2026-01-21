@@ -19,7 +19,7 @@ const lastAuctionStates = new Map<string, {
   lastUpdate: number;
 }>();
 
-// Аукционы, помеченные для обновления (например, после ставок ботов)
+// Аукционы, помеченные для обновления
 const auctionsPendingUpdate = new Set<string>();
 
 let wss: WebSocketServer | null = null;
@@ -56,24 +56,35 @@ export function createWebSocketServer(httpServer: Server) {
       }
     });
 
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.ping();
+        } catch (error) {
+          console.error("Error sending ping:", error);
+          clearInterval(pingInterval);
+          subscriptions.delete(ws);
+        }
+      } else {
+        clearInterval(pingInterval);
+      }
+    }, 30000);
+
     ws.on("close", () => {
+      clearInterval(pingInterval);
       subscriptions.delete(ws);
       console.log("WebSocket client disconnected");
     });
 
     ws.on("error", (error: Error) => {
       console.error("WebSocket error:", error);
+      clearInterval(pingInterval);
       subscriptions.delete(ws);
     });
 
-    
-    const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.ping();
-      } else {
-        clearInterval(pingInterval);
-      }
-    }, 30000);
+    ws.on("pong", () => {
+      // Клиент ответил на ping, соединение активно
+    });
   });
 
   timeUpdateInterval = setInterval(() => {
@@ -81,17 +92,11 @@ export function createWebSocketServer(httpServer: Server) {
   }, 1000);
 
   // Периодическое обновление активных аукционов (каждые 2 секунды)
-  // Это заменяет немедленные обновления от ботов
   auctionUpdateInterval = setInterval(() => {
     processPendingAuctionUpdates();
   }, 2000);
 
   return wss;
-}
-
-export function markAuctionForUpdate(auctionId: string) {
-  // Помечаем аукцион для обновления через периодический механизм
-  auctionsPendingUpdate.add(auctionId);
 }
 
 async function processPendingAuctionUpdates() {
@@ -334,9 +339,14 @@ async function broadcastTimeUpdates() {
             }));
           } catch (error) {
             console.error("Error sending time update:", error);
-            subscriptions.delete(sub.ws);
+            // Не удаляем сразу, пусть обработчик close/error это сделает
+            try {
+              sub.ws.close();
+            } catch (closeError) {
+              // Игнорируем ошибки при закрытии
+            }
           }
-        } else {
+        } else if (sub.ws.readyState === WebSocket.CLOSED || sub.ws.readyState === WebSocket.CLOSING) {
           subscriptions.delete(sub.ws);
         }
       }
@@ -370,9 +380,14 @@ async function broadcastTimeUpdates() {
           }));
         } catch (error) {
           console.error("Error sending time update:", error);
-          subscriptions.delete(sub.ws);
+          // Не удаляем сразу, пусть обработчик close/error это сделает
+          try {
+            sub.ws.close();
+          } catch (closeError) {
+            // Игнорируем ошибки при закрытии
+          }
         }
-      } else {
+      } else if (sub.ws.readyState === WebSocket.CLOSED || sub.ws.readyState === WebSocket.CLOSING) {
         subscriptions.delete(sub.ws);
       }
     }
