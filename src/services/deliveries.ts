@@ -139,7 +139,7 @@ export async function getDeliveriesByUserAndAuction(
 export async function getUserWonItemsWithNumbers(
   userId: string,
   auctionId: string
-): Promise<Array<{ item_name: string; item_no: number }>> {
+): Promise<Array<{ item_name: string; item_no: number; bid_amount: number }>> {
   // Получаем все доставки пользователя для этого аукциона
   const userDeliveries = await Deliveries.find({ 
     winner_user_id: userId, 
@@ -211,9 +211,16 @@ export async function getUserWonItemsWithNumbers(
   const result = userDeliveries
     .map((delivery) => {
       const itemNo = deliveryItemNoMap.get(delivery._id.toString()) ?? 0;
+      
+      // Находим bid для этой доставки, чтобы получить сумму ставки
+      const key = `${delivery.round_id}:${delivery.winner_user_id}`;
+      const bid = bidMap.get(key);
+      const bidAmount = bid?.amount ?? 0;
+      
       return {
         item_name: delivery.item_name,
         item_no: itemNo,
+        bid_amount: bidAmount,
       };
     })
     .filter(item => item.item_no > 0) // Фильтруем, если не удалось определить номер

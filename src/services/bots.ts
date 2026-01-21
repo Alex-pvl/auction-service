@@ -4,7 +4,7 @@ import type { RedisClientType } from "redis";
 import { getTopBids, getUserBid, getUserPlace } from "./bids.js";
 import { ensureUserByTgId, adjustUserBalanceByTgId } from "./users.js";
 import { createOrUpdateBid, addToBid } from "./bids.js";
-import { broadcastAuctionUpdate } from "./websocket.js";
+import { markAuctionForUpdate } from "./websocket.js";
 
 export type BotStrategy = "aggressive" | "conservative" | "random" | "adaptive";
 
@@ -101,8 +101,6 @@ const activeBots = new Map<string, NodeJS.Timeout>();
 let redisClient: RedisClientType<any, any, any> | null = null;
 const BOT_BID_QUEUE = "bot_bid_queue";
 const BOT_LOCK_PREFIX = "bot_lock:";
-const pendingBroadcasts = new Map<string, NodeJS.Timeout>();
-const BROADCAST_DEBOUNCE_MS = 500;
 let botBidProcessorInterval: NodeJS.Timeout | null = null;
 let isShuttingDown = false;
 
@@ -292,12 +290,6 @@ export function stopBotsForAuction(auctionId: string) {
     }
   }
   
-  const pendingBroadcast = pendingBroadcasts.get(auctionId);
-  if (pendingBroadcast) {
-    clearTimeout(pendingBroadcast);
-    pendingBroadcasts.delete(auctionId);
-  }
-  
   if (redisClient && !isShuttingDown && redisClient.isOpen) {
     try {
       const maxConcurrentBots = Math.min(
@@ -312,7 +304,7 @@ export function stopBotsForAuction(auctionId: string) {
         }
       }
     } catch (error) {
-      // do nothig
+      // do nothing
     }
   }
 }
@@ -421,11 +413,6 @@ export async function shutdownBots(): Promise<void> {
     stopBotsForAuction(auctionId);
   }
   
-  for (const timeout of pendingBroadcasts.values()) {
-    clearTimeout(timeout);
-  }
-  pendingBroadcasts.clear();
-  
   for (const timeout of activeBots.values()) {
     clearTimeout(timeout);
     clearInterval(timeout);
@@ -524,17 +511,9 @@ async function executeBotBid(auctionId: string, config: BotConfig) {
     
     if (bidUpdated) {
       console.log(`Bot ${config.username} placed bid ${finalBidAmount.toFixed(2)} in auction ${auctionId}`);
-      const existingTimeout = pendingBroadcasts.get(auctionId);
-      if (existingTimeout) {
-        clearTimeout(existingTimeout);
-      }
-      const timeout = setTimeout(async () => {
-        pendingBroadcasts.delete(auctionId);
-        await broadcastAuctionUpdate(auctionId).catch(error => {
-          console.error(`Error broadcasting auction update for ${auctionId}:`, error);
-        });
-      }, BROADCAST_DEBOUNCE_MS);
-      pendingBroadcasts.set(auctionId, timeout);
+      // Помечаем аукцион для обновления через периодический механизм
+      // вместо немедленного broadcast, чтобы не перегружать вебсокет
+      markAuctionForUpdate(auctionId);
     }
   } catch (error) {
     console.error(`Error executing bot bid for ${config.username}:`, error);

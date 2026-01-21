@@ -19,8 +19,12 @@ const lastAuctionStates = new Map<string, {
   lastUpdate: number;
 }>();
 
+// Аукционы, помеченные для обновления (например, после ставок ботов)
+const auctionsPendingUpdate = new Set<string>();
+
 let wss: WebSocketServer | null = null;
 let timeUpdateInterval: NodeJS.Timeout | null = null;
+let auctionUpdateInterval: NodeJS.Timeout | null = null;
 
 export function createWebSocketServer(httpServer: Server) {
   wss = new WebSocketServer({ server: httpServer, path: "/ws" });
@@ -76,7 +80,41 @@ export function createWebSocketServer(httpServer: Server) {
     broadcastTimeUpdates();
   }, 1000);
 
+  // Периодическое обновление активных аукционов (каждые 2 секунды)
+  // Это заменяет немедленные обновления от ботов
+  auctionUpdateInterval = setInterval(() => {
+    processPendingAuctionUpdates();
+  }, 2000);
+
   return wss;
+}
+
+export function markAuctionForUpdate(auctionId: string) {
+  // Помечаем аукцион для обновления через периодический механизм
+  auctionsPendingUpdate.add(auctionId);
+}
+
+async function processPendingAuctionUpdates() {
+  if (auctionsPendingUpdate.size === 0) {
+    return;
+  }
+
+  const auctionIds = Array.from(auctionsPendingUpdate);
+  auctionsPendingUpdate.clear();
+
+  // Обрабатываем обновления батчами, чтобы не перегружать систему
+  for (const auctionId of auctionIds) {
+    // Проверяем, есть ли подписчики на этот аукцион
+    const hasSubscribers = Array.from(subscriptions.values()).some(
+      (sub) => sub.auctionId === auctionId && sub.ws.readyState === WebSocket.OPEN
+    );
+
+    if (hasSubscribers) {
+      await broadcastAuctionUpdate(auctionId).catch(error => {
+        console.error(`Error processing pending update for auction ${auctionId}:`, error);
+      });
+    }
+  }
 }
 
 export async function shutdownWebSocketServer(): Promise<void> {
@@ -85,6 +123,11 @@ export async function shutdownWebSocketServer(): Promise<void> {
   if (timeUpdateInterval) {
     clearInterval(timeUpdateInterval);
     timeUpdateInterval = null;
+  }
+  
+  if (auctionUpdateInterval) {
+    clearInterval(auctionUpdateInterval);
+    auctionUpdateInterval = null;
   }
   
   const closePromises: Promise<void>[] = [];
@@ -113,6 +156,7 @@ export async function shutdownWebSocketServer(): Promise<void> {
   }
   
   lastAuctionStates.clear();
+  auctionsPendingUpdate.clear();
   console.log("WebSocket server shutdown complete");
 }
 

@@ -128,7 +128,7 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
       if (user) {
         const wonItems = await getUserWonItemsWithNumbers(user._id.toString(), id);
         response.user_won_items = wonItems.map(item => 
-          `${item.item_name} #${item.item_no}`
+          `${item.item_name} #${item.item_no} (${item.bid_amount.toFixed(2)})`
         );
       } else {
         response.user_won_items = [];
