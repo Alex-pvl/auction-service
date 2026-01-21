@@ -963,9 +963,15 @@ async function showAuctionDetail(auctionId) {
     const startDate = new Date(auction.start_datetime).toLocaleString();
     const endDate = auction.planned_end_datetime ? new Date(auction.planned_end_datetime).toLocaleString() : 'N/A';
     
-    const wonItemsHtml = auction.user_won_items && auction.user_won_items.length > 0
-      ? `<div><strong>Won Items:</strong><ul style="margin: 4px 0; padding-left: 20px;">${auction.user_won_items.map(item => `<li>${item}</li>`).join('')}</ul></div>`
-      : '';
+    // Отображаем список выигранных айтемов, если пользователь авторизован
+    let wonItemsHtml = '';
+    if (state.user && auction.user_won_items !== undefined) {
+      if (auction.user_won_items && auction.user_won_items.length > 0) {
+        wonItemsHtml = `<div><strong>Won Items:</strong><ul style="margin: 4px 0; padding-left: 20px;">${auction.user_won_items.map(item => `<li>${item}</li>`).join('')}</ul></div>`;
+      } else {
+        wonItemsHtml = '<div><strong>Won Items:</strong> No items won yet</div>';
+      }
+    }
     
     auctionDetailContent.innerHTML = `
       <div class="auction-detail-section">

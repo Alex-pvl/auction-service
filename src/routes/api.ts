@@ -126,11 +126,14 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
       const user = await getUserByTgId(userId);
       if (user) {
         const userDeliveries = await getDeliveriesByUserAndAuction(user._id.toString(), id);
-        const wonItems = userDeliveries.map((delivery, index) => 
+        response.user_won_items = userDeliveries.map((delivery, index) => 
           `${delivery.item_name} #${index + 1}`
         );
-        response.user_won_items = wonItems;
+      } else {
+        response.user_won_items = [];
       }
+    } else {
+      response.user_won_items = [];
     }
 
     res.json(response);
