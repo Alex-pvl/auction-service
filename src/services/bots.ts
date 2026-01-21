@@ -108,14 +108,24 @@ let isShuttingDown = false;
 
 export async function initializeBots(redis?: RedisClientType<any, any, any>) {
   redisClient = redis || null;
-  console.log(`Initializing ${BOT_CONFIGS.length} bot users in database (max ${Number(process.env.MAX_BOTS_PER_AUCTION) || 200} per auction)...`);
+  console.log(`Initializing bot system (${BOT_CONFIGS.length} bot configs available, max ${Number(process.env.MAX_BOTS_PER_AUCTION) || 200} per auction)...`);
   
   const strategyCounts = BOT_CONFIGS.reduce((acc, bot) => {
     acc[bot.strategy] = (acc[bot.strategy] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
   console.log(`Bot distribution:`, strategyCounts);
+  
+  if (redisClient) {
+    startBotBidProcessor();
+  }
+  
+  console.log(`Bot system initialized. Bots will be created and started when auctions begin.`);
+}
 
+async function createBotsInDatabase() {
+  console.log(`Creating ${BOT_CONFIGS.length} bot users in database...`);
+  
   const { User } = await import("../storage/mongo.js");
   const batchSize = 100;
   
@@ -164,9 +174,9 @@ export async function initializeBots(redis?: RedisClientType<any, any, any>) {
       if (balanceOps.length > 0) {
         await User.bulkWrite(balanceOps, { ordered: false });
       }
-      console.log(`Initialized bots batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(BOT_CONFIGS.length / batchSize)}`);
+      console.log(`Created bots batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(BOT_CONFIGS.length / batchSize)}`);
     } catch (error) {
-      console.error(`Error initializing bots batch ${Math.floor(i / batchSize) + 1}:`, error);
+      console.error(`Error creating bots batch ${Math.floor(i / batchSize) + 1}:`, error);
       for (const config of batch) {
         try {
           const user = await ensureUserByTgId(config.tg_id);
@@ -174,17 +184,33 @@ export async function initializeBots(redis?: RedisClientType<any, any, any>) {
             await adjustUserBalanceByTgId(config.tg_id, config.initial_balance - user.balance);
           }
         } catch (err) {
-          console.error(`Error initializing bot ${config.username}:`, err);
+          console.error(`Error creating bot ${config.username}:`, err);
         }
       }
     }
   }
   
-  if (redisClient) {
-    startBotBidProcessor();
+  console.log(`Bot users created in database.`);
+}
+
+export async function createAndStartBotsForAuction(auctionId: string) {
+  const auction = await Auction.findById(auctionId).lean();
+  if (!auction) {
+    console.warn(`Cannot create bots for auction ${auctionId}: auction not found`);
+    return;
   }
+  if (auction.status !== "LIVE") {
+    console.warn(`Cannot create bots for auction ${auctionId}: status is ${auction.status}, expected LIVE`);
+    return;
+  }
+
+  console.log(`Creating and starting bots for auction ${auctionId}...`);
   
-  console.log(`Bot users initialized. Bots will be started automatically when auctions begin.`);
+  // Создаем ботов в базе данных
+  await createBotsInDatabase();
+  
+  // Запускаем ботов для аукциона
+  await startBotsForAuction(auctionId);
 }
 
 export async function startBotsForAuction(auctionId: string) {

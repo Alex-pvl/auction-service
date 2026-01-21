@@ -2,7 +2,7 @@ import { Auction, Round } from "../storage/mongo.js";
 import type { Auction as AuctionType } from "../models/types.js";
 import type { RedisClientType } from "redis";
 import { getTopBids, isUserInTop3, transferBidsToNextRound } from "./bids.js";
-import { stopBotsForAuction, initializeBots } from "./bots.js";
+import { stopBotsForAuction, initializeBots, createAndStartBotsForAuction } from "./bots.js";
 import { broadcastAuctionUpdate } from "./websocket.js";
 import { adjustUserBalanceByTgId } from "./users.js";
 
@@ -167,6 +167,7 @@ async function initializeExistingAuctions() {
   
   const liveAuctions = await Auction.find({ status: "LIVE" }).lean();
   for (const auction of liveAuctions) {
+    await createAndStartBotsForAuction(auction._id.toString());
     await setupAuctionTimer(auction._id.toString());
   }
 }
@@ -396,6 +397,7 @@ async function startAuction(auctionId: string) {
   console.log(`Starting auction ${auctionId}`);
   await Auction.findByIdAndUpdate(auctionId, { status: "LIVE" });
   await startRound(auctionId, 0);
+  await createAndStartBotsForAuction(auctionId);
   await setupAuctionTimer(auctionId);
   await broadcastAuctionUpdate(auctionId);
 }
