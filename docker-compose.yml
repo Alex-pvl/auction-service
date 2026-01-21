@@ -7,6 +7,9 @@ services:
       - mongo_data:/data/db
     command: mongod --replSet rs0
     restart: unless-stopped
+    mem_limit: 1g
+    mem_reservation: 512m
+    cpus: '1.0'
 
   redis:
     image: redis:7
@@ -15,6 +18,9 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: '0.5'
 
 volumes:
   mongo_data:
