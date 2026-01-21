@@ -187,6 +187,7 @@ body {
   textarea {
     padding: 10px 12px;
     font-size: 0.9rem;
+    caret-color: var(--ink);
   }
   
   button {
@@ -388,6 +389,7 @@ body {
   textarea {
     padding: 8px 10px;
     font-size: 0.85rem;
+    caret-color: var(--ink);
   }
   
   button {
@@ -495,6 +497,7 @@ textarea {
   font-family: inherit;
   min-width: 0; /* Позволяет полям сжиматься */
   box-sizing: border-box;
+  caret-color: var(--ink);
 }
 input[type="datetime-local"],
 input[type="date"],

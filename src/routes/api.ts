@@ -35,6 +35,11 @@ import {
   getDeliveriesByUserAndAuction,
   getUserWonItemsWithNumbers,
 } from "../services/deliveries.js";
+import {
+  registerBotsForAuction,
+  stopBotsForAuction,
+  getBotsForAuction,
+} from "../services/bots.js";
 
 const auctionStatuses = new Set(["DRAFT", "RELEASED", "LIVE", "FINISHED", "DELETED"]);
 
@@ -845,6 +850,118 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
 
     const deliveries = await getDeliveriesByRound(id, round._id.toString());
     res.json(deliveries);
+  });
+
+  app.post("/api/auctions/:id/bots/start", strictLimiter, async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const auction = await getAuctionById(id);
+    if (!auction) {
+      res.status(404).json({ error: "auction not found" });
+      return;
+    }
+
+    if (auction.status !== "RELEASED" && auction.status !== "LIVE") {
+      res.status(409).json({
+        error: "bots can only be registered for RELEASED or LIVE auctions",
+      });
+      return;
+    }
+
+    const body = req.body ?? {};
+    const numBots = Number(body.num_bots ?? 10);
+    const bidsPerBot = Number(body.bids_per_bot ?? 1);
+    const bidAmountMin = Number(body.bid_amount_min ?? auction.min_bid);
+    const bidAmountMax = Number(body.bid_amount_max ?? auction.min_bid * 10);
+    const delayBetweenBidsMs = Number(body.delay_between_bids_ms ?? 100);
+    const startTgId = body.start_tg_id ? Number(body.start_tg_id) : undefined;
+
+    if (!Number.isFinite(numBots) || numBots < 1 || numBots > 1000) {
+      res.status(400).json({
+        error: "num_bots must be between 1 and 1000",
+      });
+      return;
+    }
+
+    if (!Number.isFinite(bidsPerBot) || bidsPerBot < 1 || bidsPerBot > 100) {
+      res.status(400).json({
+        error: "bids_per_bot must be between 1 and 100",
+      });
+      return;
+    }
+
+    if (!Number.isFinite(bidAmountMin) || bidAmountMin < auction.min_bid) {
+      res.status(400).json({
+        error: `bid_amount_min must be at least ${auction.min_bid}`,
+      });
+      return;
+    }
+
+    if (!Number.isFinite(bidAmountMax) || bidAmountMax < bidAmountMin) {
+      res.status(400).json({
+        error: "bid_amount_max must be greater than bid_amount_min",
+      });
+      return;
+    }
+
+    if (
+      !Number.isFinite(delayBetweenBidsMs) ||
+      delayBetweenBidsMs < 0 ||
+      delayBetweenBidsMs > 10000
+    ) {
+      res.status(400).json({
+        error: "delay_between_bids_ms must be between 0 and 10000",
+      });
+      return;
+    }
+
+    try {
+      const result = await registerBotsForAuction({
+        auctionId: id,
+        numBots,
+        bidsPerBot,
+        bidAmountMin,
+        bidAmountMax,
+        delayBetweenBidsMs,
+        startTgId,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error registering bots:", error);
+      res.status(500).json({ error: error.message || "internal server error" });
+    }
+  });
+
+  app.post("/api/auctions/:id/bots/stop", strictLimiter, async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    try {
+      const result = await stopBotsForAuction(id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error stopping bots:", error);
+      res.status(500).json({ error: error.message || "internal server error" });
+    }
+  });
+
+  app.get("/api/auctions/:id/bots", generalLimiter, async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ error: "invalid auction id" });
+      return;
+    }
+
+    const botsInfo = getBotsForAuction(id);
+    res.json(botsInfo);
   });
 
 }

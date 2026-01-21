@@ -4,6 +4,7 @@ import type { RedisClientType } from "redis";
 import { getTopBids, isUserInTop3, transferBidsToNextRound } from "./bids.js";
 import { broadcastAuctionUpdate } from "./websocket.js";
 import { adjustUserBalanceByTgId } from "./users.js";
+import { runBotsForRound } from "./bots.js";
 
 const ANTI_SNIPING_EXTENSION_MS = 30 * 1000;
 const ANTI_SNIPING_LAST_MINUTE_MS = 60 * 1000;
@@ -344,6 +345,7 @@ async function processRoundEnd(auctionId: string, auction: AuctionType) {
       );
     }
     
+    // Боты запускаются автоматически в startRound
     await setupAuctionTimer(auctionId);
     await broadcastAuctionUpdate(auctionId);
   } else {
@@ -428,6 +430,12 @@ async function startRound(auctionId: string, roundIdx: number) {
     });
 
     console.log(`Started round ${roundIdx} for auction ${auctionId}, ends at ${endedAt.toISOString()}`);
+    
+    // Запускаем ботов для этого раунда асинхронно (не блокируем основной процесс)
+    runBotsForRound(auctionId, roundIdx).catch((error) => {
+      console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
+    });
+    
     return round;
   } catch (error: any) {
     if (error.code === 11000) {
@@ -436,6 +444,14 @@ async function startRound(auctionId: string, roundIdx: number) {
         auction_id: auctionId,
         idx: roundIdx,
       });
+      
+      // Запускаем ботов даже если раунд уже существовал (на случай если они еще не запускались)
+      if (round) {
+        runBotsForRound(auctionId, roundIdx).catch((error) => {
+          console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
+        });
+      }
+      
       return round;
     }
     throw error;
@@ -728,6 +744,10 @@ export async function shutdownAuctionLifecycle(): Promise<void> {
   console.log("Shutting down auction lifecycle manager...");
   
   isShuttingDown = true;
+  
+  // Останавливаем всех ботов
+  const { clearAllBots } = await import("./bots.js");
+  clearAllBots();
   
   if (changeStream) {
     try {

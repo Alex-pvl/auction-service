@@ -450,6 +450,22 @@ const bidIdempotency = document.getElementById("bid-idempotency");
 const bidAddToExisting = document.getElementById("bid-add-to-existing");
 const minBidInfo = document.getElementById("min-bid-info");
 
+// Bot management elements
+const botsSection = document.getElementById("bots-section");
+const botsStatusText = document.getElementById("bots-status-text");
+const botsInfo = document.getElementById("bots-info");
+const botsControls = document.getElementById("bots-controls");
+const botsForm = document.getElementById("bots-form");
+const botsStartBtn = document.getElementById("bots-start-btn");
+const botsStopBtn = document.getElementById("bots-stop-btn");
+const botsError = document.getElementById("bots-error");
+const botsSuccess = document.getElementById("bots-success");
+const botsNum = document.getElementById("bots-num");
+const botsBidsPerBot = document.getElementById("bots-bids-per-bot");
+const botsBidMin = document.getElementById("bots-bid-min");
+const botsBidMax = document.getElementById("bots-bid-max");
+const botsDelay = document.getElementById("bots-delay");
+
 function formatTime(ms) {
   if (ms <= 0) return "00:00";
   const totalSeconds = Math.floor(ms / 1000);
@@ -560,6 +576,34 @@ function updateTimer(data) {
   }
 }
 
+async function updateBotsStatus() {
+  if (!state.currentAuctionId) return;
+  
+  try {
+    const botsData = await apiRequest(`/api/auctions/${state.currentAuctionId}/bots`);
+    
+    if (botsData.num_bots > 0) {
+      botsStatusText.textContent = `Active (${botsData.num_bots} bots)`;
+      botsInfo.innerHTML = `
+        <div><strong>Bots:</strong> ${botsData.num_bots}</div>
+        <div><strong>Bids per bot:</strong> ${botsData.config?.bids_per_bot || 'N/A'}</div>
+        <div><strong>Bid range:</strong> ${botsData.config?.bid_amount_min || 'N/A'} - ${botsData.config?.bid_amount_max || 'N/A'}</div>
+      `;
+      botsStartBtn.style.display = "none";
+      botsStopBtn.style.display = "block";
+      botsControls.style.display = "none";
+    } else {
+      botsStatusText.textContent = "Not registered";
+      botsInfo.innerHTML = "";
+      botsStartBtn.style.display = "block";
+      botsStopBtn.style.display = "none";
+      botsControls.style.display = "block";
+    }
+  } catch (error) {
+    console.error("Failed to fetch bots status:", error);
+  }
+}
+
 function updateLiveAuction(data) {
   const { auction, round, top_bids, all_bids, user_bid, user_place } = data;
 
@@ -567,6 +611,22 @@ function updateLiveAuction(data) {
   liveAuctionItem.textContent = auction.item_name || "-";
   liveAuctionStatus.textContent = auction.status;
   liveRemainingItems.textContent = auction.remaining_items_count ?? "-";
+  
+  // Show bots section only for RELEASED or LIVE auctions
+  if (auction.status === "RELEASED" || auction.status === "LIVE") {
+    botsSection.style.display = "block";
+    updateBotsStatus();
+    
+    // Auto-fill min bid if not set
+    if (!botsBidMin.value && auction.min_bid) {
+      botsBidMin.placeholder = auction.min_bid.toString();
+    }
+    if (!botsBidMax.value && auction.min_bid) {
+      botsBidMax.placeholder = (auction.min_bid * 10).toString();
+    }
+  } else {
+    botsSection.style.display = "none";
+  }
 
   if (round) {
     const roundNum = round.idx + 1;
@@ -718,6 +778,84 @@ watchForm.addEventListener("submit", async (e) => {
   liveEmpty.style.display = "none";
   shouldReconnect = true;
   connectWebSocket(auctionId);
+  updateBotsStatus();
+});
+
+// Bot management handlers
+botsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  
+  if (!state.currentAuctionId) {
+    botsError.textContent = "Please select an auction first";
+    botsError.style.display = "block";
+    return;
+  }
+
+  const numBots = Number(botsNum.value);
+  const bidsPerBot = Number(botsBidsPerBot.value);
+  const bidMin = botsBidMin.value ? Number(botsBidMin.value) : undefined;
+  const bidMax = botsBidMax.value ? Number(botsBidMax.value) : undefined;
+  const delay = Number(botsDelay.value);
+
+  botsError.style.display = "none";
+  botsSuccess.style.display = "none";
+  botsStartBtn.disabled = true;
+  botsStartBtn.textContent = "Starting...";
+
+  try {
+    const requestBody = {
+      num_bots: numBots,
+      bids_per_bot: bidsPerBot,
+      delay_between_bids_ms: delay,
+    };
+
+    if (bidMin !== undefined) {
+      requestBody.bid_amount_min = bidMin;
+    }
+    if (bidMax !== undefined) {
+      requestBody.bid_amount_max = bidMax;
+    }
+
+    const result = await apiRequest(`/api/auctions/${state.currentAuctionId}/bots/start`, {
+      method: "POST",
+      body: JSON.stringify(requestBody),
+    });
+
+    botsSuccess.textContent = `Successfully registered ${result.registered} bots!`;
+    botsSuccess.style.display = "block";
+    await updateBotsStatus();
+  } catch (error) {
+    botsError.textContent = error.message || "Failed to start bots";
+    botsError.style.display = "block";
+  } finally {
+    botsStartBtn.disabled = false;
+    botsStartBtn.textContent = "Start Bots";
+  }
+});
+
+botsStopBtn.addEventListener("click", async () => {
+  if (!state.currentAuctionId) return;
+
+  botsError.style.display = "none";
+  botsSuccess.style.display = "none";
+  botsStopBtn.disabled = true;
+  botsStopBtn.textContent = "Stopping...";
+
+  try {
+    const result = await apiRequest(`/api/auctions/${state.currentAuctionId}/bots/stop`, {
+      method: "POST",
+    });
+
+    botsSuccess.textContent = `Stopped ${result.stopped} bots`;
+    botsSuccess.style.display = "block";
+    await updateBotsStatus();
+  } catch (error) {
+    botsError.textContent = error.message || "Failed to stop bots";
+    botsError.style.display = "block";
+  } finally {
+    botsStopBtn.disabled = false;
+    botsStopBtn.textContent = "Stop Bots";
+  }
 });
 
 function generateIdempotencyKey() {
