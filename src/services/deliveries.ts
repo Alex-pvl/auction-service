@@ -2,7 +2,7 @@ import { Deliveries, Auction, Round, Bid } from "../storage/mongo.js";
 import type { Deliveries as DeliveriesType, DeliveryStatus } from "../models/types.js";
 import mongoose from "mongoose";
 
-const DELIVERY_PROCESSING_DELAY_MS = 5 * 1000;
+const DELIVERY_PROCESSING_DELAY_MS = 1000;
 
 export async function createDeliveriesForWinners(
   auctionId: string,
@@ -131,16 +131,10 @@ export async function getDeliveriesByUserAndAuction(
     .lean();
 }
 
-/**
- * Вычисляет порядковые номера айтемов для доставок пользователя в аукционе.
- * Номер айтема определяется как глобальный порядковый номер в списке всех доставок аукциона,
- * отсортированных по раунду (idx) и месту в раунде (place_id).
- */
 export async function getUserWonItemsWithNumbers(
   userId: string,
   auctionId: string
 ): Promise<Array<{ item_name: string; item_no: number; bid_amount: number }>> {
-  // Получаем все доставки пользователя для этого аукциона
   const userDeliveries = await Deliveries.find({ 
     winner_user_id: userId, 
     auction_id: auctionId 
@@ -150,17 +144,14 @@ export async function getUserWonItemsWithNumbers(
     return [];
   }
 
-  // Получаем все доставки аукциона для вычисления порядковых номеров
   const allDeliveries = await Deliveries.find({ auction_id: auctionId }).lean();
   
-  // Получаем все раунды аукциона
   const rounds = await Round.find({ auction_id: auctionId })
     .sort({ idx: 1 })
     .lean();
   
   const roundMap = new Map(rounds.map(r => [r._id.toString(), r.idx]));
 
-  // Получаем все bids для всех доставок одним запросом
   const roundIds = [...new Set(allDeliveries.map(d => d.round_id))];
   const userIds = [...new Set(allDeliveries.map(d => d.winner_user_id))];
   
@@ -170,21 +161,18 @@ export async function getUserWonItemsWithNumbers(
     user_id: { $in: userIds },
   }).lean();
   
-  // Создаем мапу для быстрого поиска bid по round_id и user_id
   const bidMap = new Map<string, typeof allBids[0]>();
   allBids.forEach(bid => {
     const key = `${bid.round_id}:${bid.user_id}`;
     bidMap.set(key, bid);
   });
 
-  // Для каждой доставки получаем информацию о раунде и месте
   const deliveriesWithInfo = allDeliveries.map((delivery) => {
     const roundIdx = roundMap.get(delivery.round_id) ?? 999;
     
-    // Находим bid для этой доставки, чтобы получить place_id
     const key = `${delivery.round_id}:${delivery.winner_user_id}`;
     const bid = bidMap.get(key);
-    const placeId = bid?.place_id ?? 999999;
+    const placeId = bid?.place_id ?? 0;
     
     return {
       delivery,
@@ -193,7 +181,6 @@ export async function getUserWonItemsWithNumbers(
     };
   });
 
-  // Сортируем все доставки по раунду и месту
   deliveriesWithInfo.sort((a, b) => {
     if (a.roundIdx !== b.roundIdx) {
       return a.roundIdx - b.roundIdx;
@@ -201,18 +188,15 @@ export async function getUserWonItemsWithNumbers(
     return a.placeId - b.placeId;
   });
 
-  // Создаем мапу для быстрого поиска порядкового номера доставки
   const deliveryItemNoMap = new Map<string, number>();
   deliveriesWithInfo.forEach((item, index) => {
     deliveryItemNoMap.set(item.delivery._id.toString(), index + 1);
   });
 
-  // Формируем результат для доставок пользователя
   const result = userDeliveries
     .map((delivery) => {
       const itemNo = deliveryItemNoMap.get(delivery._id.toString()) ?? 0;
       
-      // Находим bid для этой доставки, чтобы получить сумму ставки
       const key = `${delivery.round_id}:${delivery.winner_user_id}`;
       const bid = bidMap.get(key);
       const bidAmount = bid?.amount ?? 0;
@@ -223,8 +207,8 @@ export async function getUserWonItemsWithNumbers(
         bid_amount: bidAmount,
       };
     })
-    .filter(item => item.item_no > 0) // Фильтруем, если не удалось определить номер
-    .sort((a, b) => a.item_no - b.item_no); // Сортируем по номеру айтема
+    .filter(item => item.item_no > 0)
+    .sort((a, b) => a.item_no - b.item_no);
 
   return result;
 }

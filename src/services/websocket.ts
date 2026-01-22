@@ -4,6 +4,9 @@ import type { IncomingMessage } from "node:http";
 import mongoose from "mongoose";
 import { Auction, Round } from "../storage/mongo.js";
 import { getUserBid, getUserPlace, getTopBids } from "./bids.js";
+import { handleBidRequest } from "./bids-redis.js";
+import { getUserByTgId } from "./users.js";
+import { getAuctionById } from "./auctions.js";
 
 interface AuctionSubscription {
   auctionId: string;
@@ -20,7 +23,6 @@ const lastAuctionStates = new Map<string, {
   lastUpdate: number;
 }>();
 
-// Аукционы, помеченные для обновления
 const auctionsPendingUpdate = new Set<string>();
 
 let wss: WebSocketServer | null = null;
@@ -50,6 +52,8 @@ export function createWebSocketServer(httpServer: Server) {
           subscriptions.delete(ws);
         } else if (data.type === "ping") {
           ws.send(JSON.stringify({ type: "pong" }));
+        } else if (data.type === "bid") {
+          await handleBidMessage(ws, data);
         }
       } catch (error) {
         console.error("WebSocket message error:", error);
@@ -69,7 +73,7 @@ export function createWebSocketServer(httpServer: Server) {
       } else {
         clearInterval(pingInterval);
       }
-    }, 30000);
+    }, 10000);
 
     ws.on("close", () => {
       clearInterval(pingInterval);
@@ -84,18 +88,17 @@ export function createWebSocketServer(httpServer: Server) {
     });
 
     ws.on("pong", () => {
-      // Клиент ответил на ping, соединение активно
     });
   });
 
   timeUpdateInterval = setInterval(() => {
     broadcastTimeUpdates();
-  }, 1000);
+  }, 100);
 
-  // Периодическое обновление активных аукционов (каждые 500мс для более быстрой синхронизации)
   auctionUpdateInterval = setInterval(() => {
     processPendingAuctionUpdates();
-  }, 500);
+    broadcastAllActiveAuctions();
+  }, 100);
 
   return wss;
 }
@@ -108,9 +111,7 @@ async function processPendingAuctionUpdates() {
   const auctionIds = Array.from(auctionsPendingUpdate);
   auctionsPendingUpdate.clear();
 
-  // Обрабатываем обновления батчами, чтобы не перегружать систему
   for (const auctionId of auctionIds) {
-    // Проверяем, есть ли подписчики на этот аукцион
     const hasSubscribers = Array.from(subscriptions.values()).some(
       (sub) => sub.auctionId === auctionId && sub.ws.readyState === WebSocket.OPEN
     );
@@ -340,11 +341,9 @@ async function broadcastTimeUpdates() {
             }));
           } catch (error) {
             console.error("Error sending time update:", error);
-            // Не удаляем сразу, пусть обработчик close/error это сделает
             try {
               sub.ws.close();
             } catch (closeError) {
-              // Игнорируем ошибки при закрытии
             }
           }
         } else if (sub.ws.readyState === WebSocket.CLOSED || sub.ws.readyState === WebSocket.CLOSING) {
@@ -381,17 +380,31 @@ async function broadcastTimeUpdates() {
           }));
         } catch (error) {
           console.error("Error sending time update:", error);
-          // Не удаляем сразу, пусть обработчик close/error это сделает
           try {
             sub.ws.close();
           } catch (closeError) {
-            // Игнорируем ошибки при закрытии
           }
         }
       } else if (sub.ws.readyState === WebSocket.CLOSED || sub.ws.readyState === WebSocket.CLOSING) {
         subscriptions.delete(sub.ws);
       }
     }
+  }
+}
+
+async function broadcastAllActiveAuctions() {
+  const activeAuctionIds = new Set<string>();
+  
+  for (const sub of subscriptions.values()) {
+    if (sub.ws.readyState === WebSocket.OPEN) {
+      activeAuctionIds.add(sub.auctionId);
+    }
+  }
+  
+  for (const auctionId of activeAuctionIds) {
+    await broadcastAuctionUpdate(auctionId, false).catch(error => {
+      console.error(`Error broadcasting active auction ${auctionId}:`, error);
+    });
   }
 }
 
@@ -431,14 +444,17 @@ export async function broadcastAuctionUpdate(auctionId: string, force: boolean =
   const topBidsHash = JSON.stringify(topBids.map(b => ({ user_id: b.user_id, amount: b.amount, place_id: b.place_id })));
   const bidsCount = allBids.length;
   const lastState = lastAuctionStates.get(auctionId);
+  const now = Date.now();
   
-  // Проверяем изменения: либо изменился топ-10, либо изменилось количество ставок
-  // Если force=true, пропускаем проверку и отправляем обновление немедленно
-  if (!force && lastState && lastState.topBidsHash === topBidsHash && lastState.bidsCount === bidsCount) {
-    return;
+  if (!force && lastState) {
+    const timeSinceLastUpdate = now - lastState.lastUpdate;
+    const hasChanges = lastState.topBidsHash !== topBidsHash || lastState.bidsCount !== bidsCount;
+    
+    if (!hasChanges && timeSinceLastUpdate < 100) {
+      return;
+    }
   }
 
-  const now = Date.now();
   const roundEndTime = currentRound.extended_until
     ? currentRound.extended_until.getTime()
     : currentRound.ended_at.getTime();
@@ -460,4 +476,91 @@ export async function broadcastAuctionUpdate(auctionId: string, force: boolean =
   );
   
   await Promise.all(sendPromises);
+}
+
+async function handleBidMessage(ws: WebSocket, data: any) {
+  try {
+    const { auction_id, amount, idempotency_key, add_to_existing, user_id } = data;
+
+    if (!auction_id) {
+      ws.send(JSON.stringify({ type: "bid_error", error: "auction_id is required" }));
+      return;
+    }
+
+    if (!user_id) {
+      ws.send(JSON.stringify({ type: "bid_error", error: "user_id is required" }));
+      return;
+    }
+
+    if (!amount || !Number.isFinite(amount) || amount <= 0) {
+      ws.send(JSON.stringify({ type: "bid_error", error: "amount must be positive" }));
+      return;
+    }
+
+    if (!Number.isInteger(amount)) {
+      ws.send(JSON.stringify({ type: "bid_error", error: "amount must be an integer (no decimal places)" }));
+      return;
+    }
+
+    if (!idempotency_key || !String(idempotency_key).trim()) {
+      ws.send(JSON.stringify({ type: "bid_error", error: "idempotency_key is required" }));
+      return;
+    }
+
+    const userTgId = Number(user_id);
+    const user = await getUserByTgId(userTgId);
+    if (!user) {
+      ws.send(JSON.stringify({ type: "bid_error", error: "user not found" }));
+      return;
+    }
+
+    const auction = await getAuctionById(auction_id);
+    if (!auction) {
+      ws.send(JSON.stringify({ type: "bid_error", error: "auction not found" }));
+      return;
+    }
+
+    const currentRound = await Round.findOne({
+      auction_id: auction_id,
+      idx: auction.current_round_idx,
+    }).lean();
+
+    if (!currentRound) {
+      ws.send(JSON.stringify({ type: "bid_error", error: "round not found" }));
+      return;
+    }
+
+    const roundId = currentRound._id.toString();
+
+    try {
+      const result = await handleBidRequest(
+        auction_id,
+        roundId,
+        userTgId,
+        user._id.toString(),
+        amount,
+        String(idempotency_key).trim(),
+        Boolean(add_to_existing)
+      );
+
+      ws.send(JSON.stringify({
+        type: "bid_success",
+        bid: result.bid,
+        place: result.place,
+        remaining_balance: result.remaining_balance,
+      }));
+    } catch (error: any) {
+      console.error("Error handling bid:", error);
+      ws.send(JSON.stringify({
+        type: "bid_error",
+        error: error.message || "internal server error",
+      }));
+    }
+  } catch (error: any) {
+    console.error("Error processing bid message:", error);
+    ws.send(JSON.stringify({
+      type: "bid_error",
+      error: error.message || "invalid bid message format",
+    }));
+  }
 }

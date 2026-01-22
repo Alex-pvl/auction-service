@@ -176,50 +176,6 @@
             <div><strong>Amount:</strong> <span id="user-bid-amount">-</span></div>
             <div><strong>Place:</strong> <span id="user-bid-place">-</span></div>
           </div>
-          
-          <div class="round-info" id="bots-section" style="display: none;">
-            <h3 style="margin: 0 0 12px; font-size: 1.2rem;">Bot Management</h3>
-            <div id="bots-status" style="margin-bottom: 16px;">
-              <div><strong>Status:</strong> <span id="bots-status-text">Not registered</span></div>
-              <div id="bots-info" style="margin-top: 8px; font-size: 0.9rem; color: #666;"></div>
-            </div>
-            <div id="bots-controls" style="display: none;">
-              <form id="bots-form" style="display: grid; gap: 12px;">
-                <div class="field-row">
-                  <div>
-                    <label for="bots-num">Number of Bots</label>
-                    <input id="bots-num" type="number" min="1" max="1000" value="50" required />
-                  </div>
-                  <div>
-                    <label for="bots-bids-per-bot">Bids per Bot</label>
-                    <input id="bots-bids-per-bot" type="number" min="1" max="100" value="2" required />
-                  </div>
-                </div>
-                <div class="field-row">
-                  <div>
-                    <label for="bots-bid-min">Min Bid Amount</label>
-                    <input id="bots-bid-min" type="number" min="0" step="0.01" placeholder="Auto" />
-                    <p class="helper">Leave empty to use auction min bid</p>
-                  </div>
-                  <div>
-                    <label for="bots-bid-max">Max Bid Amount</label>
-                    <input id="bots-bid-max" type="number" min="0" step="0.01" placeholder="Auto" />
-                    <p class="helper">Leave empty for auto calculation</p>
-                  </div>
-                </div>
-                <div>
-                  <label for="bots-delay">Delay Between Bids (ms)</label>
-                  <input id="bots-delay" type="number" min="0" max="10000" value="100" required />
-                </div>
-                <div style="display: flex; gap: 12px;">
-                  <button type="submit" id="bots-start-btn">Start Bots</button>
-                  <button type="button" class="secondary" id="bots-stop-btn" style="display: none;">Stop Bots</button>
-                </div>
-              </form>
-            </div>
-            <div id="bots-error" class="error" style="display: none; margin-top: 12px;"></div>
-            <div id="bots-success" class="success" style="display: none; margin-top: 12px;"></div>
-          </div>
         </div>
 
         <div id="live-empty" class="empty">
