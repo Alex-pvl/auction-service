@@ -276,7 +276,7 @@ export async function runBotsForRound(
         {
           auction_id: auctionId,
           round_id: roundId,
-          user_id: task.bot.userId,
+          user_id: task.bot.userId!,
           amount: task.amount,
           idempotency_key: idempotencyKey,
         },
