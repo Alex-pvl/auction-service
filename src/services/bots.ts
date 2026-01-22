@@ -3,6 +3,7 @@ import { Auction, Round, User } from "../storage/mongo.js";
 import { getAuctionById } from "./auctions.js";
 import { getMinBidForRound, createBidWithBalanceDeduction } from "./bids.js";
 import { ensureUserByTgId, adjustUserBalanceByTgId } from "./users.js";
+import { broadcastAuctionUpdate } from "./websocket.js";
 
 export interface BotConfig {
   auctionId: string;
@@ -91,6 +92,35 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
   console.log(
     `Registered ${botSet.bots.size} bots for auction ${config.auctionId}`
   );
+
+  // Если аукцион уже LIVE, проверяем текущий раунд и запускаем ботов для него
+  if (auction.status === "LIVE" && botSet.bots.size > 0) {
+    const currentRound = await Round.findOne({
+      auction_id: config.auctionId,
+      idx: auction.current_round_idx ?? 0,
+    }).lean();
+
+    if (currentRound) {
+      const now = Date.now();
+      const actualEndTime = currentRound.extended_until
+        ? currentRound.extended_until.getTime()
+        : currentRound.ended_at.getTime();
+
+      // Если раунд еще активен, запускаем ботов для него
+      if (now < actualEndTime) {
+        const roundKey = `${config.auctionId}-${currentRound.idx}`;
+        // Удаляем из processedRounds, чтобы можно было запустить ботов заново
+        processedRounds.delete(roundKey);
+        // Запускаем ботов для текущего раунда асинхронно
+        runBotsForRound(config.auctionId, currentRound.idx).catch((error) => {
+          console.error(
+            `Error running bots for auction ${config.auctionId}, round ${currentRound.idx}:`,
+            error
+          );
+        });
+      }
+    }
+  }
 
   return {
     registered: botSet.bots.size,
@@ -255,6 +285,11 @@ export async function runBotsForRound(
       );
 
       bidsPlaced++;
+      
+      // Отправляем обновление вебсокета после каждой ставки бота (асинхронно, чтобы не блокировать)
+      broadcastAuctionUpdate(auctionId, true).catch(error => {
+        console.error(`Error broadcasting auction update after bot bid:`, error);
+      });
 
       // Задержка между ставками
       if (botSet.config.delayBetweenBidsMs > 0) {

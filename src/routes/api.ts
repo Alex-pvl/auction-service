@@ -668,7 +668,8 @@ export function registerApiRoutes(app: Express, redis: RedisClientType<any, any,
 
       const place = await getUserPlace(id, roundId, user._id.toString());
       
-      await broadcastAuctionUpdate(id);
+      // Принудительно отправляем обновление сразу после создания ставки
+      await broadcastAuctionUpdate(id, true);
 
       res.json({
         bid,

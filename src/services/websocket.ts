@@ -14,6 +14,7 @@ interface AuctionSubscription {
 const subscriptions = new Map<WebSocket, AuctionSubscription>();
 const lastAuctionStates = new Map<string, {
   topBidsHash: string;
+  bidsCount: number;
   roundEndTime: number;
   timeRemaining: number;
   lastUpdate: number;
@@ -91,10 +92,10 @@ export function createWebSocketServer(httpServer: Server) {
     broadcastTimeUpdates();
   }, 1000);
 
-  // Периодическое обновление активных аукционов (каждые 2 секунды)
+  // Периодическое обновление активных аукционов (каждые 500мс для более быстрой синхронизации)
   auctionUpdateInterval = setInterval(() => {
     processPendingAuctionUpdates();
-  }, 2000);
+  }, 500);
 
   return wss;
 }
@@ -394,7 +395,7 @@ async function broadcastTimeUpdates() {
   }
 }
 
-export async function broadcastAuctionUpdate(auctionId: string) {
+export async function broadcastAuctionUpdate(auctionId: string, force: boolean = false) {
   if (!mongoose.Types.ObjectId.isValid(auctionId)) {
     console.warn(`Invalid auction ID format: ${auctionId}`);
     return;
@@ -423,13 +424,17 @@ export async function broadcastAuctionUpdate(auctionId: string) {
   }
 
   const roundId = currentRound._id.toString();
-  const { getTopBids } = await import("./bids.js");
+  const { getTopBids, getAllBidsInRound } = await import("./bids.js");
   const topBids = await getTopBids(auctionId, roundId, 10);
+  const allBids = await getAllBidsInRound(auctionId, roundId);
   
   const topBidsHash = JSON.stringify(topBids.map(b => ({ user_id: b.user_id, amount: b.amount, place_id: b.place_id })));
+  const bidsCount = allBids.length;
   const lastState = lastAuctionStates.get(auctionId);
   
-  if (lastState && lastState.topBidsHash === topBidsHash) {
+  // Проверяем изменения: либо изменился топ-10, либо изменилось количество ставок
+  // Если force=true, пропускаем проверку и отправляем обновление немедленно
+  if (!force && lastState && lastState.topBidsHash === topBidsHash && lastState.bidsCount === bidsCount) {
     return;
   }
 
@@ -441,6 +446,7 @@ export async function broadcastAuctionUpdate(auctionId: string) {
   
   lastAuctionStates.set(auctionId, {
     topBidsHash,
+    bidsCount,
     roundEndTime,
     timeRemaining,
     lastUpdate: now,
