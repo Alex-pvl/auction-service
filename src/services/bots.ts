@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { Auction, Round, User } from "../storage/mongo.js";
+import { Round } from "../storage/mongo.js";
 import { getAuctionById } from "./auctions.js";
-import { getMinBidForRound, createBidWithBalanceDeduction } from "./bids.js";
+import { getMinBidForRound } from "./bids.js";
+import { createBidWithBalanceDeductionRedis } from "./bids-redis.js";
 import { ensureUserByTgId, adjustUserBalanceByTgId } from "./users.js";
 import { broadcastAuctionUpdate } from "./websocket.js";
 
@@ -12,31 +13,26 @@ export interface BotConfig {
   bidAmountMin: number;
   bidAmountMax: number;
   delayBetweenBidsMs: number;
-  startTgId?: number; // Начальный tg_id для ботов (по умолчанию 2000000)
+  startTgId?: number;
 }
 
 interface Bot {
   auctionId: string;
   tgId: number;
-  userId: string | null; // MongoDB user._id
+  userId: string | null;
   config: BotConfig;
   isActive: boolean;
 }
 
 interface ActiveBotSet {
   config: BotConfig;
-  bots: Map<number, Bot>; // tgId -> Bot
+  bots: Map<number, Bot>;
 }
 
-// Хранилище активных ботов по auctionId
 const activeBots = new Map<string, ActiveBotSet>();
 
-// Отслеживание запущенных раундов для предотвращения повторного запуска
-const processedRounds = new Set<string>(); // формат: "auctionId-roundIdx"
+const processedRounds = new Set<string>();
 
-/**
- * Регистрирует ботов для аукциона
- */
 export async function registerBotsForAuction(config: BotConfig): Promise<{
   registered: number;
   auctionId: string;
@@ -51,7 +47,6 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
     throw new Error("Bots can only be registered for RELEASED or LIVE auctions");
   }
 
-  // Останавливаем существующих ботов для этого аукциона, если есть
   await stopBotsForAuction(config.auctionId);
 
   const startTgId = config.startTgId || 2000000;
@@ -62,13 +57,11 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
 
   const botTgIds: number[] = [];
 
-  // Создаем пользователей для ботов
   for (let i = 0; i < config.numBots; i++) {
     const tgId = startTgId + i;
     try {
       const user = await ensureUserByTgId(tgId);
       
-      // Устанавливаем баланс для ботов (достаточно для всех ставок)
       const balancePerBot = config.bidAmountMax * config.bidsPerBot * 2;
       await adjustUserBalanceByTgId(tgId, balancePerBot);
 
@@ -93,7 +86,6 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
     `Registered ${botSet.bots.size} bots for auction ${config.auctionId}`
   );
 
-  // Если аукцион уже LIVE, проверяем текущий раунд и запускаем ботов для него
   if (auction.status === "LIVE" && botSet.bots.size > 0) {
     const currentRound = await Round.findOne({
       auction_id: config.auctionId,
@@ -106,12 +98,9 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
         ? currentRound.extended_until.getTime()
         : currentRound.ended_at.getTime();
 
-      // Если раунд еще активен, запускаем ботов для него
       if (now < actualEndTime) {
         const roundKey = `${config.auctionId}-${currentRound.idx}`;
-        // Удаляем из processedRounds, чтобы можно было запустить ботов заново
         processedRounds.delete(roundKey);
-        // Запускаем ботов для текущего раунда асинхронно
         runBotsForRound(config.auctionId, currentRound.idx).catch((error) => {
           console.error(
             `Error running bots for auction ${config.auctionId}, round ${currentRound.idx}:`,
@@ -129,9 +118,6 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
   };
 }
 
-/**
- * Останавливает всех ботов для аукциона
- */
 export async function stopBotsForAuction(auctionId: string): Promise<{
   stopped: number;
 }> {
@@ -146,7 +132,6 @@ export async function stopBotsForAuction(auctionId: string): Promise<{
 
   activeBots.delete(auctionId);
   
-  // Очищаем обработанные раунды для этого аукциона
   for (const key of processedRounds) {
     if (key.startsWith(`${auctionId}-`)) {
       processedRounds.delete(key);
@@ -159,9 +144,6 @@ export async function stopBotsForAuction(auctionId: string): Promise<{
   return { stopped };
 }
 
-/**
- * Получает информацию о ботах для аукциона
- */
 export function getBotsForAuction(auctionId: string): {
   numBots: number;
   config: BotConfig | null;
@@ -177,9 +159,11 @@ export function getBotsForAuction(auctionId: string): {
   };
 }
 
-/**
- * Запускает ботов для конкретного раунда
- */
+export function clearProcessedRound(auctionId: string, roundIdx: number): void {
+  const roundKey = `${auctionId}-${roundIdx}`;
+  processedRounds.delete(roundKey);
+}
+
 export async function runBotsForRound(
   auctionId: string,
   roundIdx: number
@@ -189,7 +173,6 @@ export async function runBotsForRound(
 }> {
   const roundKey = `${auctionId}-${roundIdx}`;
   
-  // Проверяем, не запускались ли уже боты для этого раунда
   if (processedRounds.has(roundKey)) {
     console.log(`Bots already processed for auction ${auctionId}, round ${roundIdx}, skipping`);
     return { bidsPlaced: 0, errors: 0 };
@@ -200,7 +183,6 @@ export async function runBotsForRound(
     return { bidsPlaced: 0, errors: 0 };
   }
   
-  // Помечаем раунд как обработанный
   processedRounds.add(roundKey);
 
   const auction = await getAuctionById(auctionId);
@@ -240,7 +222,6 @@ export async function runBotsForRound(
   let bidsPlaced = 0;
   let errors = 0;
 
-  // Создаем задачи для ставок
   const bidTasks: Array<{
     bot: Bot;
     amount: number;
@@ -258,13 +239,11 @@ export async function runBotsForRound(
     }
   }
 
-  // Перемешиваем задачи для более реалистичного поведения
   for (let i = bidTasks.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [bidTasks[i], bidTasks[j]] = [bidTasks[j], bidTasks[i]];
   }
 
-  // Выполняем ставки с задержкой
   for (const task of bidTasks) {
     if (!task.bot.isActive) continue;
 
@@ -272,26 +251,21 @@ export async function runBotsForRound(
       const idempotencyKey = randomUUID();
       const roundId = round._id.toString();
 
-      await createBidWithBalanceDeduction(
-        {
-          auction_id: auctionId,
-          round_id: roundId,
-          user_id: task.bot.userId!,
-          amount: task.amount,
-          idempotency_key: idempotencyKey,
-        },
+      await createBidWithBalanceDeductionRedis(
+        auctionId,
+        roundId,
+        task.bot.userId!,
         task.bot.tgId,
-        task.amount
+        task.amount,
+        idempotencyKey
       );
 
       bidsPlaced++;
       
-      // Отправляем обновление вебсокета после каждой ставки бота (асинхронно, чтобы не блокировать)
       broadcastAuctionUpdate(auctionId, true).catch(error => {
         console.error(`Error broadcasting auction update after bot bid:`, error);
       });
 
-      // Задержка между ставками
       if (botSet.config.delayBetweenBidsMs > 0) {
         await new Promise((resolve) =>
           setTimeout(resolve, botSet.config.delayBetweenBidsMs)
@@ -299,7 +273,6 @@ export async function runBotsForRound(
       }
     } catch (error: any) {
       errors++;
-      // Игнорируем некоторые ошибки (например, недостаточно баланса, раунд закончился)
       if (
         !error.message?.includes("insufficient balance") &&
         !error.message?.includes("round has ended") &&
@@ -320,9 +293,6 @@ export async function runBotsForRound(
   return { bidsPlaced, errors };
 }
 
-/**
- * Очищает всех ботов (для shutdown)
- */
 export function clearAllBots(): void {
   for (const botSet of activeBots.values()) {
     for (const bot of botSet.bots.values()) {

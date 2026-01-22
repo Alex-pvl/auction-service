@@ -4,7 +4,7 @@ import type { RedisClientType } from "redis";
 import { getTopBids, isUserInTop3, transferBidsToNextRound } from "./bids.js";
 import { broadcastAuctionUpdate } from "./websocket.js";
 import { adjustUserBalanceByTgId } from "./users.js";
-import { runBotsForRound } from "./bots.js";
+import { runBotsForRound, clearProcessedRound } from "./bots.js";
 
 const ANTI_SNIPING_EXTENSION_MS = 30 * 1000;
 const ANTI_SNIPING_LAST_MINUTE_MS = 60 * 1000;
@@ -345,7 +345,6 @@ async function processRoundEnd(auctionId: string, auction: AuctionType) {
       );
     }
     
-    // Боты запускаются автоматически в startRound
     await setupAuctionTimer(auctionId);
     await broadcastAuctionUpdate(auctionId);
   } else {
@@ -394,6 +393,7 @@ async function startAuction(auctionId: string) {
   if (!auction || auction.status !== "RELEASED") return;
   console.log(`Starting auction ${auctionId}`);
   await Auction.findByIdAndUpdate(auctionId, { status: "LIVE" });
+  clearProcessedRound(auctionId, 0);
   await startRound(auctionId, 0);
   await setupAuctionTimer(auctionId);
   await broadcastAuctionUpdate(auctionId);
@@ -410,6 +410,9 @@ async function startRound(auctionId: string, roundIdx: number) {
   
   if (existingRound) {
     console.log(`Round ${roundIdx} for auction ${auctionId} already exists, skipping creation`);
+    runBotsForRound(auctionId, roundIdx).catch((error) => {
+      console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
+    });
     return existingRound;
   }
   
@@ -431,7 +434,6 @@ async function startRound(auctionId: string, roundIdx: number) {
 
     console.log(`Started round ${roundIdx} for auction ${auctionId}, ends at ${endedAt.toISOString()}`);
     
-    // Запускаем ботов для этого раунда асинхронно (не блокируем основной процесс)
     runBotsForRound(auctionId, roundIdx).catch((error) => {
       console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
     });
@@ -445,7 +447,6 @@ async function startRound(auctionId: string, roundIdx: number) {
         idx: roundIdx,
       });
       
-      // Запускаем ботов даже если раунд уже существовал (на случай если они еще не запускались)
       if (round) {
         runBotsForRound(auctionId, roundIdx).catch((error) => {
           console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
@@ -598,20 +599,16 @@ async function finishAuction(auctionId: string) {
           let maxAmountSoFar = 0;
           
           for (const round of allRounds) {
-            // Проверяем, выиграл ли пользователь в этом раунде
             const winnersCount = Math.floor(auction.winners_per_round);
             const topBids = await getTopBids(auctionId, round._id.toString(), winnersCount);
             const winnerUserIds = new Set(topBids.map(bid => bid.user_id));
             const userWonInRound = winnerUserIds.has(userId);
             
-            // Если пользователь выиграл в раунде, его ставка не должна учитываться в возврате
-            // (он получил товар за эту ставку), и сбрасываем maxAmountSoFar
             if (userWonInRound) {
               maxAmountSoFar = 0;
               continue;
             }
             
-            // Получаем все ставки пользователя в раунде, сортируем по сумме
             const userBidsInRound = await Bid.find({
               auction_id: auctionId,
               round_id: round._id.toString(),
@@ -619,15 +616,11 @@ async function finishAuction(auctionId: string) {
             }).sort({ amount: -1 }).lean();
             
             if (userBidsInRound.length > 0) {
-              // Находим максимальную сумму в раунде (может быть как новая, так и трансферная ставка)
               const maxBid = userBidsInRound[0];
               const currentRoundAmount = maxBid.amount;
               
-              // Проверяем, есть ли в раунде новая ставка (не трансферная)
               const hasNewBid = userBidsInRound.some(bid => !bid.idempotency_key?.startsWith("transfer-"));
               
-              // Если есть новая ставка, то пользователь потратил инкремент от предыдущей максимальной суммы
-              // Если только трансферная ставка, то это перенесенная сумма из предыдущего раунда, не добавляем к totalSpent
               if (hasNewBid) {
                 const increment = currentRoundAmount - maxAmountSoFar;
                 if (increment > 0) {
@@ -635,8 +628,6 @@ async function finishAuction(auctionId: string) {
                 }
                 maxAmountSoFar = currentRoundAmount;
               } else {
-                // Только трансферная ставка - обновляем maxAmountSoFar, но не добавляем к totalSpent
-                // (т.к. эта сумма уже была учтена в предыдущем раунде)
                 if (currentRoundAmount > maxAmountSoFar) {
                   maxAmountSoFar = currentRoundAmount;
                 }
@@ -745,7 +736,6 @@ export async function shutdownAuctionLifecycle(): Promise<void> {
   
   isShuttingDown = true;
   
-  // Останавливаем всех ботов
   const { clearAllBots } = await import("./bots.js");
   clearAllBots();
   
@@ -774,7 +764,7 @@ export async function shutdownAuctionLifecycle(): Promise<void> {
     deliveryProcessorInterval = null;
   }
   
-  for (const [auctionId, timer] of activeTimers.entries()) {
+  for (const [_, timer] of activeTimers.entries()) {
     if (timer.timeoutId) {
       clearTimeout(timer.timeoutId);
     }

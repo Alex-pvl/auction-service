@@ -46,6 +46,32 @@ export type BidCreateInput = {
   is_top3_sniping_bid?: boolean;
 };
 
+async function calculatePlaceForNewBid(
+  auction_id: string,
+  round_id: string,
+  amount: number,
+  created_at: Date,
+  session?: mongoose.ClientSession
+): Promise<number> {
+  const existingBids = await Bid.find({ auction_id, round_id })
+    .session(session || null)
+    .sort({ amount: -1, created_at: 1 })
+    .lean();
+
+  let place = existingBids.length + 1;
+  
+  for (let i = 0; i < existingBids.length; i++) {
+    const existingBid = existingBids[i];
+    if (amount > existingBid.amount || 
+        (amount === existingBid.amount && created_at < existingBid.created_at)) {
+      place = i + 1;
+      break;
+    }
+  }
+  
+  return place;
+}
+
 export async function createOrUpdateBid(input: BidCreateInput, session?: mongoose.ClientSession) {
   const existingBid = await Bid.findOne({
     auction_id: input.auction_id,
@@ -57,12 +83,22 @@ export async function createOrUpdateBid(input: BidCreateInput, session?: mongoos
     return existingBid;
   }
 
+  const created_at = new Date();
+  const place_id = await calculatePlaceForNewBid(
+    input.auction_id,
+    input.round_id,
+    input.amount,
+    created_at,
+    session
+  );
+
   const bid = await Bid.create([{
     ...input,
-    place_id: 999999, 
+    place_id,
   }], { session: session || undefined });
   
   await recalculatePlaces(input.auction_id, input.round_id, session);
+  
   const updatedBid = await Bid.findById(bid[0]._id).session(session || null).lean();
   return updatedBid!;
 }
@@ -354,6 +390,13 @@ export async function transferBidsToNextRound(
     existingBidsInNextRound.map((bid) => [bid.user_id, bid])
   );
   
+  const allExistingBidsInNextRound = await Bid.find({
+    auction_id,
+    round_id: next_round_id,
+  })
+    .sort({ amount: -1, created_at: 1 })
+    .lean();
+
   const bulkOps: any[] = [];
   const now = new Date();
 
@@ -374,6 +417,16 @@ export async function transferBidsToNextRound(
         },
       });
     } else {
+      let place_id = allExistingBidsInNextRound.length + 1;
+      for (let i = 0; i < allExistingBidsInNextRound.length; i++) {
+        const existingBid = allExistingBidsInNextRound[i];
+        if (bidData.totalAmount > existingBid.amount || 
+            (bidData.totalAmount === existingBid.amount && now < existingBid.created_at)) {
+          place_id = i + 1;
+          break;
+        }
+      }
+      
       bulkOps.push({
         insertOne: {
           document: {
@@ -381,7 +434,7 @@ export async function transferBidsToNextRound(
             round_id: next_round_id,
             user_id,
             amount: bidData.totalAmount,
-            place_id: 999999, 
+            place_id,
             idempotency_key: `transfer-${current_round_id}-${user_id}-${Date.now()}`,
             is_top3_sniping_bid: false,
             created_at: now,

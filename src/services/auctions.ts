@@ -5,6 +5,7 @@ import {
   setCachedAuction,
   invalidateAuctionCache,
 } from "./cache.js";
+import { registerBotsForAuction } from "./bots.js";
 
 export type AuctionCreateInput = Omit<AuctionType, "_id" | "created_at" | "updated_at">;
 export type AuctionUpdateInput = Partial<Omit<AuctionType, "_id" | "created_at" | "updated_at">>;
@@ -49,6 +50,27 @@ export async function releaseAuction(id: string) {
   const auction = await Auction.findByIdAndUpdate(id, { status: "RELEASED" }, { new: true }).lean();
   if (auction) {
     await invalidateAuctionCache(id);
+    
+    try {
+      const numBots = 5 * auction.winners_count_total;
+      const bidsPerBot = 1;
+      const bidAmountMin = auction.min_bid;
+      const bidAmountMax = auction.min_bid * 10;
+      const delayBetweenBidsMs = 100;
+      
+      await registerBotsForAuction({
+        auctionId: id,
+        numBots,
+        bidsPerBot,
+        bidAmountMin,
+        bidAmountMax,
+        delayBetweenBidsMs,
+      });
+      
+      console.log(`Automatically registered ${numBots} bots for auction ${id}`);
+    } catch (error: any) {
+      console.error(`Error auto-registering bots for auction ${id}:`, error.message);
+    }
   }
   return auction;
 }

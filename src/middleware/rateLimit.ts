@@ -1,115 +1,124 @@
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import type { RedisClientType } from "redis";
+import rateLimit from "@fastify/rate-limit";
+import type { FastifyInstance } from "fastify";
 
-class RedisStore {
-  client: RedisClientType<any, any, any>;
-  prefix: string;
-
-  constructor(client: RedisClientType<any, any, any>, prefix: string = "rl:") {
-    this.client = client;
-    this.prefix = prefix;
-  }
-
-  async increment(key: string): Promise<{ totalHits: number; resetTime: Date }> {
-    const fullKey = `${this.prefix}${key}`;
-    const multi = this.client.multi();
-    multi.incr(fullKey);
-    multi.expire(fullKey, 60);
-    const results = await multi.exec();
-    const hits = (results?.[0] as number) || 0;
-    const ttl = await this.client.ttl(fullKey);
-    const resetTime = new Date(Date.now() + (ttl * 1000));
-    return {
-      totalHits: hits,
-      resetTime,
-    };
-  }
-
-  async decrement(key: string) {
-    const fullKey = `${this.prefix}${key}`;
-    await this.client.decr(fullKey);
-  }
-
-  async resetKey(key: string) {
-    const fullKey = `${this.prefix}${key}`;
-    await this.client.del(fullKey);
-  }
-}
-
-export function createRateLimiter(redis?: RedisClientType<any, any, any>) {
-  // Отключаем rate limiter для нагрузочного тестирования
+export async function registerRateLimiters(fastify: FastifyInstance) {
   if (process.env.DISABLE_RATE_LIMIT === "true" || process.env.NODE_ENV === "test") {
-    return (req: any, res: any, next: any) => next();
+    return;
   }
-  
-  const store = redis ? new RedisStore(redis) : undefined;
-  
-  return rateLimit({
-    windowMs: 60 * 1000,
+
+  await fastify.register(rateLimit, {
     max: 300,
-    message: "Too many requests, please try again later",
-    standardHeaders: true,
-    legacyHeaders: false,
-    store: store as any,
-    keyGenerator: (req, res) => {
-      const userId = req.get("X-User-Id");
+    timeWindow: 60000,
+    keyGenerator: (request) => {
+      const userId = request.headers["x-user-id"];
       if (userId) {
         return `user:${userId}`;
       }
-      const ip = req.ip || req.socket.remoteAddress || "unknown";
-      return `ip:${ipKeyGenerator(ip)}`;
+      const ip = request.ip || request.socket.remoteAddress || "unknown";
+      return `ip:${ip}`;
     },
   });
 }
 
-export function createStrictRateLimiter(redis?: RedisClientType<any, any, any>) {
-  // Отключаем rate limiter для нагрузочного тестирования
+export function createRateLimiter() {
   if (process.env.DISABLE_RATE_LIMIT === "true" || process.env.NODE_ENV === "test") {
-    return (req: any, res: any, next: any) => next();
+    return async (_req: any, _res: any, next: any) => next();
   }
   
-  const store = redis ? new RedisStore(redis) : undefined;
-  
-  return rateLimit({
-    windowMs: 60 * 1000,
-    max: 100,
-    message: "Too many requests, please try again later",
-    standardHeaders: true,
-    legacyHeaders: false,
-    store: store as any,
-    keyGenerator: (req, res) => {
-      const userId = req.get("X-User-Id");
-      if (userId) {
-        return `user:${userId}`;
-      }
-      const ip = req.ip || req.socket.remoteAddress || "unknown";
-      return `ip:${ipKeyGenerator(ip)}`;
-    },
-  });
+  return async (request: any, reply: any, next: any) => {
+    const userId = request.headers["x-user-id"];
+    const key = userId ? `user:${userId}` : `ip:${request.ip || request.socket.remoteAddress || "unknown"}`;
+    
+    const rateLimitStore = (global as any).rateLimitStore || new Map();
+    (global as any).rateLimitStore = rateLimitStore;
+    
+    const now = Date.now();
+    const windowMs = 60000;
+    const max = 100;
+    
+    const record = rateLimitStore.get(key) || { count: 0, resetTime: now + windowMs };
+    
+    if (now > record.resetTime) {
+      record.count = 0;
+      record.resetTime = now + windowMs;
+    }
+    
+    if (record.count >= max) {
+      return reply.code(429).send({ error: "Too many requests" });
+    }
+    
+    record.count++;
+    rateLimitStore.set(key, record);
+    next();
+  };
 }
 
-export function createBidRateLimiter(redis?: RedisClientType<any, any, any>) {
-  // Отключаем rate limiter для нагрузочного тестирования
+export function createStrictRateLimiter() {
   if (process.env.DISABLE_RATE_LIMIT === "true" || process.env.NODE_ENV === "test") {
-    return (req: any, res: any, next: any) => next();
+    return async (_req: any, _res: any, next: any) => next();
   }
   
-  const store = redis ? new RedisStore(redis) : undefined;
+  return async (request: any, reply: any, next: any) => {
+    const userId = request.headers["x-user-id"];
+    const key = userId ? `user:${userId}` : `ip:${request.ip || request.socket.remoteAddress || "unknown"}`;
+    
+    const rateLimitStore = (global as any).rateLimitStore || new Map();
+    (global as any).rateLimitStore = rateLimitStore;
+    
+    const now = Date.now();
+    const windowMs = 60000;
+    const max = 20;
+    
+    const record = rateLimitStore.get(key) || { count: 0, resetTime: now + windowMs };
+    
+    if (now > record.resetTime) {
+      record.count = 0;
+      record.resetTime = now + windowMs;
+    }
+    
+    if (record.count >= max) {
+      return reply.code(429).send({ error: "Too many requests" });
+    }
+    
+    record.count++;
+    rateLimitStore.set(key, record);
+    next();
+  };
+}
+
+export function createBidRateLimiter() {
+  if (process.env.DISABLE_RATE_LIMIT === "true" || process.env.NODE_ENV === "test") {
+    return async (_req: any, _res: any, next: any) => next();
+  }
   
-  return rateLimit({
-    windowMs: 10 * 1000,
-    max: 20,
-    message: "Too many bids, please slow down",
-    standardHeaders: true,
-    legacyHeaders: false,
-    store: store as any,
-    keyGenerator: (req, res) => {
-      const userId = req.get("X-User-Id");
-      if (userId) {
-        return `bid:user:${userId}`;
-      }
-      const ip = req.ip || req.socket.remoteAddress || "unknown";
-      return `bid:ip:${ipKeyGenerator(ip)}`;
-    },
-  });
+  return async (request: any, reply: any, next: any) => {
+    const userId = request.headers["x-user-id"];
+    if (!userId) {
+      return reply.code(400).send({ error: "X-User-Id header is required for bids" });
+    }
+    
+    const key = `bid:user:${userId}`;
+    
+    const rateLimitStore = (global as any).rateLimitStore || new Map();
+    (global as any).rateLimitStore = rateLimitStore;
+    
+    const now = Date.now();
+    const windowMs = 1000;
+    const max = 10;
+    
+    const record = rateLimitStore.get(key) || { count: 0, resetTime: now + windowMs };
+    
+    if (now > record.resetTime) {
+      record.count = 0;
+      record.resetTime = now + windowMs;
+    }
+    
+    if (record.count >= max) {
+      return reply.code(429).send({ error: "Too many bid requests" });
+    }
+    
+    record.count++;
+    rateLimitStore.set(key, record);
+    next();
+  };
 }

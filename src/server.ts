@@ -1,22 +1,46 @@
-import express from "express";
-import cors from "cors";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import mongoose from "mongoose";
 import { createClient } from "redis";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServer } from "node:http";
-import { registerApiRoutes } from "./routes/api.js";
+import { registerApiRoutes } from "./routes/api-fastify.js";
 import { startAuctionLifecycleManager, shutdownAuctionLifecycle } from "./services/auction-lifecycle.js";
 import { createWebSocketServer, shutdownWebSocketServer } from "./services/websocket.js";
 import { setRedisClient } from "./services/cache.js";
+import { setRedisClient as setRedisBidsClient } from "./services/redis-bids.js";
+import { setRedisClient as setMongoSyncClient, startMongoSync, stopMongoSync, initializeUserBalancesFromMongo } from "./services/mongo-sync.js";
 
-const PORT = Number(process.env.PORT ?? 3000);
-const MONGO_URL = process.env.MONGO_URL ?? "mongodb://localhost:27017/auction_service";
-const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
+const PORT = Number(process.env.PORT);
+const MONGO_URL = process.env.MONGO_URL!;
+const REDIS_URL = process.env.REDIS_URL!;
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const fastify = Fastify({
+  logger: true,
+  bodyLimit: 1048576,
+});
+
+fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+  try {
+    const json = body === '' ? {} : JSON.parse(body as string);
+    done(null, json);
+  } catch (err) {
+    done(err as Error, undefined);
+  }
+});
+
+await fastify.register(cors, {
+  origin: true,
+});
+
+await fastify.register(fastifyStatic, {
+  root: path.join(__dirname, "..", "public"),
+  prefix: "/",
+});
 
 const redis = createClient({
   url: REDIS_URL,
@@ -30,21 +54,11 @@ const redis = createClient({
     },
   },
 });
+
 redis.on("error", (err) => {
   console.error("redis error", err);
 });
 
-registerApiRoutes(app, redis);
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use(express.static(path.join(__dirname, "..", "public")));
-
-app.get("/", (_req, res) => {
-  res.sendFile(path.join(__dirname, "..", "public", "index.html"));
-});
-
-let httpServer: ReturnType<typeof createServer> | null = null;
 let isShuttingDown = false;
 let shutdownTimeout: NodeJS.Timeout | null = null;
 const SHUTDOWN_TIMEOUT_MS = 30000;
@@ -65,18 +79,10 @@ async function shutdown(signal: string) {
   }, SHUTDOWN_TIMEOUT_MS);
   
   try {
-    if (httpServer) {
-      await new Promise<void>((resolve) => {
-        httpServer!.close(() => {
-          console.log("HTTP server closed");
-          resolve();
-        });
-        setTimeout(() => {
-          console.warn("HTTP server close timeout, forcing...");
-          resolve();
-        }, 5000);
-      });
-    }
+    stopMongoSync();
+    
+    await fastify.close();
+    console.log("Fastify server closed");
     
     await shutdownWebSocketServer();
     await shutdownAuctionLifecycle();
@@ -128,15 +134,44 @@ async function start() {
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
   });
+  console.log("MongoDB connected");
+
   await redis.connect();
+  console.log("Redis connected");
+  
   setRedisClient(redis);
-  httpServer = createServer(app);
-  createWebSocketServer(httpServer);
-  await startAuctionLifecycleManager(redis);
-  httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`server listening on 0.0.0.0:${PORT}`);
-    console.log(`WebSocket server available at ws://localhost:${PORT}/ws`);
+  setRedisBidsClient(redis);
+  setMongoSyncClient(redis);
+  
+  await initializeUserBalancesFromMongo();
+  
+  startMongoSync();
+  
+  await registerApiRoutes(fastify);
+  
+  fastify.get("/", async (_request, reply) => {
+    return reply.sendFile("index.html");
   });
+  
+  fastify.get("/api/health", async (_request, reply) => {
+    const mongoOk = mongoose.connection.readyState === 1;
+    const redisOk = redis.isOpen;
+    return reply.send({ ok: mongoOk && redisOk, mongoOk, redisOk });
+  });
+  
+  const httpServer = fastify.server;
+  createWebSocketServer(httpServer);
+  
+  await startAuctionLifecycleManager(redis);
+  
+  try {
+    await fastify.listen({ port: PORT, host: "0.0.0.0" });
+    console.log(`Server listening on 0.0.0.0:${PORT}`);
+    console.log(`WebSocket server available at ws://localhost:${PORT}/ws`);
+  } catch (err) {
+    fastify.log.error(err);
+    process.exit(1);
+  }
   
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
