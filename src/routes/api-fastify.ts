@@ -297,6 +297,8 @@ export async function registerApiRoutes(fastify: FastifyInstance) {
       const value = toDate(body.start_datetime);
       if (!isValidDate(value) || value.getTime() < Date.now()) {
         errors.push("start_datetime");
+      } else {
+        updates.start_datetime = value;
       }
     }
 
