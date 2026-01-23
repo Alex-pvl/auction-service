@@ -7,7 +7,7 @@ import { adjustUserBalanceByTgId } from "./users.js";
 import { runBotsForRound, clearProcessedRound } from "./bots.js";
 
 const ANTI_SNIPING_EXTENSION_MS = 30 * 1000;
-const ANTI_SNIPING_LAST_MINUTE_MS = 60 * 1000;
+const ANTI_SNIPING_LAST_30_SECONDS_MS = 30 * 1000;
 
 interface AuctionTimer {
   auctionId: string;
@@ -41,7 +41,7 @@ export async function startAuctionLifecycleManager(redis?: RedisClientType<any, 
   
   checkTimersInterval = setInterval(async () => {
     await checkTimers();
-  }, 10000);
+  }, 1000);
   
   startDeliveryProcessor();
 }
@@ -188,6 +188,7 @@ function startAuctionChangeStream() {
         if (change.operationType === "update" && fullDocument) {
           if (change.updateDescription?.updatedFields?.status === "LIVE") {
             await startAuction(auctionId);
+            await checkTimers();
           }
           else if (change.updateDescription?.updatedFields?.status === "FINISHED") {
             await finishAuction(auctionId);
@@ -198,6 +199,7 @@ function startAuctionChangeStream() {
         } else if (change.operationType === "insert" && fullDocument) {
           if (fullDocument.status === "RELEASED" && fullDocument.start_datetime.getTime() <= Date.now()) {
             await startAuction(auctionId);
+            await checkTimers();
           } else if (fullDocument.status === "RELEASED") {
             console.log(`New auction ${auctionId} created with status RELEASED, will start at ${fullDocument.start_datetime.toISOString()}`);
           }
@@ -394,9 +396,18 @@ async function startAuction(auctionId: string) {
   console.log(`Starting auction ${auctionId}`);
   await Auction.findByIdAndUpdate(auctionId, { status: "LIVE" });
   clearProcessedRound(auctionId, 0);
-  await startRound(auctionId, 0);
+  const round = await startRound(auctionId, 0);
   await setupAuctionTimer(auctionId);
   await broadcastAuctionUpdate(auctionId);
+  
+  if (round) {
+    setTimeout(async () => {
+      clearProcessedRound(auctionId, 0);
+      await runBotsForRound(auctionId, 0).catch((error) => {
+        console.error(`Error running bots for auction ${auctionId}, round 0:`, error);
+      });
+    }, 100);
+  }
 }
 
 async function startRound(auctionId: string, roundIdx: number) {
@@ -681,8 +692,19 @@ export async function handleTop3Bid(auctionId: string, roundId: string, userId: 
   if (!auction) return false;
   if (round.idx !== 0) return false;
 
-  const inTop3 = await isUserInTop3(auctionId, roundId, userId);
-  if (!inTop3) return false;
+  let userPlace: number | null = null;
+  
+  try {
+    const { getUserPlaceRedis } = await import("./bids-redis.js");
+    userPlace = await getUserPlaceRedis(auctionId, roundId, userId);
+  } catch (error) {
+    const { getUserPlace } = await import("./bids.js");
+    userPlace = await getUserPlace(auctionId, roundId, userId);
+  }
+  
+  if (userPlace !== 1) {
+    return false;
+  }
 
   const now = Date.now();
   const actualEndTime = round.extended_until 
@@ -690,7 +712,7 @@ export async function handleTop3Bid(auctionId: string, roundId: string, userId: 
     : round.ended_at.getTime();
   const timeUntilEnd = actualEndTime - now;
 
-  if (timeUntilEnd <= ANTI_SNIPING_LAST_MINUTE_MS && timeUntilEnd > 0) {
+  if (timeUntilEnd <= ANTI_SNIPING_LAST_30_SECONDS_MS && timeUntilEnd > 0) {
     const { Bid } = await import("../storage/mongo.js");
     await Bid.updateMany(
       {
@@ -718,7 +740,7 @@ export async function handleTop3Bid(auctionId: string, roundId: string, userId: 
       });
       
       console.log(
-        `Anti-sniping: Extended round ${round.idx} for auction ${auctionId} until ${new Date(newExtendedUntil).toISOString()} (top-3 user ${userId} ${isUpdate ? 'rebid' : 'bid'})`
+        `Anti-sniping: Extended round ${round.idx} for auction ${auctionId} until ${new Date(newExtendedUntil).toISOString()} (user ${userId} outbid first place, added 30s)`
       );
       
       await setupAuctionTimer(auctionId);

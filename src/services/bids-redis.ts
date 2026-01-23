@@ -248,8 +248,7 @@ export async function handleBidRequest(
 
   if (auction.current_round_idx === 0) {
     const userPlace = await getUserPlaceRedis(auctionId, roundId, userId);
-    const isTop3 = userPlace !== null && userPlace <= 3;
-    if (isTop3) {
+    if (userPlace === 1) {
       await handleTop3Bid(auctionId, roundId, userId, isBidUpdate);
     }
   }

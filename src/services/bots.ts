@@ -87,9 +87,10 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
   );
 
   if (auction.status === "LIVE" && botSet.bots.size > 0) {
+    const currentRoundIdx = auction.current_round_idx ?? 0;
     const currentRound = await Round.findOne({
       auction_id: config.auctionId,
-      idx: auction.current_round_idx ?? 0,
+      idx: currentRoundIdx,
     }).lean();
 
     if (currentRound) {
@@ -99,15 +100,42 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
         : currentRound.ended_at.getTime();
 
       if (now < actualEndTime) {
-        const roundKey = `${config.auctionId}-${currentRound.idx}`;
+        const roundKey = `${config.auctionId}-${currentRoundIdx}`;
         processedRounds.delete(roundKey);
-        runBotsForRound(config.auctionId, currentRound.idx).catch((error) => {
-          console.error(
-            `Error running bots for auction ${config.auctionId}, round ${currentRound.idx}:`,
-            error
-          );
-        });
+        setTimeout(() => {
+          runBotsForRound(config.auctionId, currentRoundIdx).catch((error) => {
+            console.error(
+              `Error running bots for auction ${config.auctionId}, round ${currentRoundIdx}:`,
+              error
+            );
+          });
+        }, 50);
       }
+    } else if (currentRoundIdx === 0) {
+      setTimeout(async () => {
+        const round = await Round.findOne({
+          auction_id: config.auctionId,
+          idx: 0,
+        }).lean();
+        
+        if (round) {
+          const now = Date.now();
+          const actualEndTime = round.extended_until
+            ? round.extended_until.getTime()
+            : round.ended_at.getTime();
+
+          if (now < actualEndTime) {
+            const roundKey = `${config.auctionId}-0`;
+            processedRounds.delete(roundKey);
+            runBotsForRound(config.auctionId, 0).catch((error) => {
+              console.error(
+                `Error running bots for auction ${config.auctionId}, round 0:`,
+                error
+              );
+            });
+          }
+        }
+      }, 200);
     }
   }
 
