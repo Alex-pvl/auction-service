@@ -30,7 +30,7 @@ export async function setCachedTopBids(
   roundId: string,
   limit: number,
   bids: any[],
-  ttl: number = 5
+  ttl: number = 2
 ) {
   if (!redisClient) return;
   

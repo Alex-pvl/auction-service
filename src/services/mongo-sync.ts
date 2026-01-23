@@ -4,7 +4,7 @@ import { getAllBidsForRoundFromRedis, getUserBalanceFromRedis } from "./redis-bi
 
 let redisClient: RedisClientType<any, any, any> | null = null;
 let syncInterval: NodeJS.Timeout | null = null;
-const SYNC_INTERVAL_MS = 1000;
+const SYNC_INTERVAL_MS = 500;
 const isShuttingDown = false;
 
 export function setRedisClient(client: RedisClientType<any, any, any>) {
@@ -121,6 +121,14 @@ async function syncBidsToMongo() {
         await Bid.bulkWrite(bulkOps, { ordered: false });
         
         await recalculatePlaces(auctionId, roundId);
+        
+        const { invalidateTopBidsCache } = await import("./cache.js");
+        await invalidateTopBidsCache(auctionId, roundId);
+        
+        const { broadcastAuctionUpdate } = await import("./websocket.js");
+        await broadcastAuctionUpdate(auctionId, false).catch(error => {
+          console.error(`Error broadcasting update after sync for auction ${auctionId}:`, error);
+        });
       }
     }
   } catch (error) {
@@ -146,6 +154,9 @@ async function recalculatePlaces(auctionId: string, roundId: string) {
     }));
 
     await Bid.bulkWrite(bulkOps, { ordered: false });
+    
+    const { invalidateTopBidsCache } = await import("./cache.js");
+    await invalidateTopBidsCache(auctionId, roundId);
   } catch (error) {
     console.error("Error recalculating places:", error);
   }

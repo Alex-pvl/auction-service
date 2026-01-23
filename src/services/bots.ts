@@ -86,7 +86,7 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
     `Registered ${botSet.bots.size} bots for auction ${config.auctionId}`
   );
 
-  if (auction.status === "LIVE" && botSet.bots.size > 0) {
+  if (botSet.bots.size > 0) {
     const currentRoundIdx = auction.current_round_idx ?? 0;
     const currentRound = await Round.findOne({
       auction_id: config.auctionId,
@@ -102,7 +102,8 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
       if (now < actualEndTime) {
         const roundKey = `${config.auctionId}-${currentRoundIdx}`;
         processedRounds.delete(roundKey);
-        const delay = currentRoundIdx === 0 ? 200 : 50;
+        const delay = currentRoundIdx === 0 ? 100 : 50;
+        console.log(`Registered bots for auction ${config.auctionId}, round ${currentRoundIdx}, starting in ${delay}ms`);
         setTimeout(() => {
           runBotsForRound(config.auctionId, currentRoundIdx).catch((error) => {
             console.error(
@@ -111,8 +112,11 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
             );
           });
         }, delay);
+      } else {
+        console.log(`Round ${currentRoundIdx} for auction ${config.auctionId} has already ended, skipping bot start`);
       }
     } else if (currentRoundIdx === 0) {
+      console.log(`Round 0 not found for auction ${config.auctionId}, waiting for round creation...`);
       setTimeout(async () => {
         const round = await Round.findOne({
           auction_id: config.auctionId,
@@ -128,15 +132,20 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
           if (now < actualEndTime) {
             const roundKey = `${config.auctionId}-0`;
             processedRounds.delete(roundKey);
+            console.log(`Round 0 found for auction ${config.auctionId}, starting bots`);
             runBotsForRound(config.auctionId, 0).catch((error) => {
               console.error(
                 `Error running bots for auction ${config.auctionId}, round 0:`,
                 error
               );
             });
+          } else {
+            console.log(`Round 0 for auction ${config.auctionId} has already ended, skipping bot start`);
           }
+        } else {
+          console.log(`Round 0 still not found for auction ${config.auctionId} after wait`);
         }
-      }, 300);
+      }, 500);
     }
   }
 
@@ -209,13 +218,15 @@ export async function runBotsForRound(
   
   const botSet = activeBots.get(auctionId);
   if (!botSet || botSet.bots.size === 0) {
+    console.log(`No active bots found for auction ${auctionId}, round ${roundIdx}`);
     return { bidsPlaced: 0, errors: 0 };
   }
   
   processedRounds.add(roundKey);
 
   const auction = await getAuctionById(auctionId);
-  if (!auction || auction.status !== "LIVE") {
+  if (!auction) {
+    console.log(`Auction ${auctionId} not found, skipping bots for round ${roundIdx}`);
     return { bidsPlaced: 0, errors: 0 };
   }
 
@@ -226,6 +237,16 @@ export async function runBotsForRound(
 
   if (!round) {
     console.warn(`Round ${roundIdx} not found for auction ${auctionId}`);
+    return { bidsPlaced: 0, errors: 0 };
+  }
+
+  const now = Date.now();
+  const actualEndTime = round.extended_until
+    ? round.extended_until.getTime()
+    : round.ended_at.getTime();
+
+  if (now >= actualEndTime) {
+    console.log(`Round ${roundIdx} for auction ${auctionId} has already ended, skipping bots`);
     return { bidsPlaced: 0, errors: 0 };
   }
 

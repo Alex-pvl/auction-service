@@ -98,7 +98,7 @@ export function createWebSocketServer(httpServer: Server) {
   auctionUpdateInterval = setInterval(() => {
     processPendingAuctionUpdates();
     broadcastAllActiveAuctions();
-  }, 100);
+  }, 50);
 
   return wss;
 }
@@ -450,7 +450,11 @@ export async function broadcastAuctionUpdate(auctionId: string, force: boolean =
     const timeSinceLastUpdate = now - lastState.lastUpdate;
     const hasChanges = lastState.topBidsHash !== topBidsHash || lastState.bidsCount !== bidsCount;
     
-    if (!hasChanges && timeSinceLastUpdate < 100) {
+    if (hasChanges && timeSinceLastUpdate < 50) {
+      return;
+    }
+    
+    if (!hasChanges && timeSinceLastUpdate < 500) {
       return;
     }
   }
