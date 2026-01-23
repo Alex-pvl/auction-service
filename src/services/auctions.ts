@@ -52,10 +52,10 @@ export async function releaseAuction(id: string) {
     await invalidateAuctionCache(id);
     
     try {
-      const numBots = 5 * auction.winners_count_total;
+      const numBots = auction.winners_count_total;
       const bidsPerBot = 1;
       const bidAmountMin = auction.min_bid;
-      const bidAmountMax = auction.min_bid * 10;
+      const bidAmountMax = auction.min_bid * 5;
       const delayBetweenBidsMs = 100;
       
       await registerBotsForAuction({
