@@ -102,6 +102,7 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
       if (now < actualEndTime) {
         const roundKey = `${config.auctionId}-${currentRoundIdx}`;
         processedRounds.delete(roundKey);
+        const delay = currentRoundIdx === 0 ? 200 : 50;
         setTimeout(() => {
           runBotsForRound(config.auctionId, currentRoundIdx).catch((error) => {
             console.error(
@@ -109,7 +110,7 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
               error
             );
           });
-        }, 50);
+        }, delay);
       }
     } else if (currentRoundIdx === 0) {
       setTimeout(async () => {
@@ -135,7 +136,7 @@ export async function registerBotsForAuction(config: BotConfig): Promise<{
             });
           }
         }
-      }, 200);
+      }, 300);
     }
   }
 

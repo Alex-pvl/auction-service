@@ -401,12 +401,27 @@ async function startAuction(auctionId: string) {
   await broadcastAuctionUpdate(auctionId);
   
   if (round) {
+    // Wait a bit longer to ensure bots are registered, then run bots for first round
     setTimeout(async () => {
-      clearProcessedRound(auctionId, 0);
-      await runBotsForRound(auctionId, 0).catch((error) => {
-        console.error(`Error running bots for auction ${auctionId}, round 0:`, error);
-      });
-    }, 100);
+      const { getBotsForAuction } = await import("./bots.js");
+      const botsInfo = getBotsForAuction(auctionId);
+      
+      // Only run bots if they're registered, otherwise wait a bit more
+      if (botsInfo.numBots > 0) {
+        clearProcessedRound(auctionId, 0);
+        await runBotsForRound(auctionId, 0).catch((error) => {
+          console.error(`Error running bots for auction ${auctionId}, round 0:`, error);
+        });
+      } else {
+        // Retry after additional delay if bots aren't registered yet
+        setTimeout(async () => {
+          clearProcessedRound(auctionId, 0);
+          await runBotsForRound(auctionId, 0).catch((error) => {
+            console.error(`Error running bots for auction ${auctionId}, round 0:`, error);
+          });
+        }, 500);
+      }
+    }, 500);
   }
 }
 
@@ -421,9 +436,12 @@ async function startRound(auctionId: string, roundIdx: number) {
   
   if (existingRound) {
     console.log(`Round ${roundIdx} for auction ${auctionId} already exists, skipping creation`);
-    runBotsForRound(auctionId, roundIdx).catch((error) => {
-      console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
-    });
+    // For first round, bots are called from startAuction to ensure they're registered
+    if (roundIdx !== 0) {
+      runBotsForRound(auctionId, roundIdx).catch((error) => {
+        console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
+      });
+    }
     return existingRound;
   }
   
@@ -445,9 +463,12 @@ async function startRound(auctionId: string, roundIdx: number) {
 
     console.log(`Started round ${roundIdx} for auction ${auctionId}, ends at ${endedAt.toISOString()}`);
     
-    runBotsForRound(auctionId, roundIdx).catch((error) => {
-      console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
-    });
+    // For first round, bots are called from startAuction to ensure they're registered
+    if (roundIdx !== 0) {
+      runBotsForRound(auctionId, roundIdx).catch((error) => {
+        console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
+      });
+    }
     
     return round;
   } catch (error: any) {
@@ -458,7 +479,7 @@ async function startRound(auctionId: string, roundIdx: number) {
         idx: roundIdx,
       });
       
-      if (round) {
+      if (round && roundIdx !== 0) {
         runBotsForRound(auctionId, roundIdx).catch((error) => {
           console.error(`Error running bots for auction ${auctionId}, round ${roundIdx}:`, error);
         });
