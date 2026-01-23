@@ -586,10 +586,6 @@ function updateLiveAuction(data) {
     } else {
       liveTimer.classList.remove("warning");
     }
-
-    if (round.extended_until) {
-      liveTimer.textContent += " (extended)";
-    }
   } else {
     liveRoundInfo.textContent = "No active round";
     liveTimer.textContent = "--:--";
