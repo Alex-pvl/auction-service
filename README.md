@@ -384,16 +384,6 @@ Creating new auction for load test...
 ✓ Created auction: 69725eee1e1321a99c97bc0e
 Releasing auction...
 ✓ Auction released
-Waiting for auction to become LIVE...
-Start time passed, waiting for status change... (3s elapsed, status: RELEASED)
-Start time passed, waiting for status change... (6s elapsed, status: RELEASED)
-Start time passed, waiting for status change... (9s elapsed, status: RELEASED)
-Start time passed, waiting for status change... (12s elapsed, status: RELEASED)
-Start time passed, waiting for status change... (15s elapsed, status: RELEASED)
-Start time passed, waiting for status change... (18s elapsed, status: RELEASED)
-Start time passed, waiting for status change... (21s elapsed, status: RELEASED)
-Start time passed, waiting for status change... (24s elapsed, status: RELEASED)
-Start time passed, waiting for status change... (27s elapsed, status: RELEASED)
 Status changed: RELEASED → LIVE
 ✓ Auction 69725eee1e1321a99c97bc0e is now LIVE
 Fetching auction data...
@@ -435,7 +425,6 @@ Bid types:
   New bids: 1000
   Add to existing: 0
 
-Note: Using direct method calls instead of WebSocket connections for load testing
 ============================================================
 
 ✓ MongoDB connection closed
@@ -444,4 +433,4 @@ Note: Using direct method calls instead of WebSocket connections for load testin
 
 ## Demo
 
-[demo video link](https://drive.google.com/drive/folders/1neewyHGuzeYfQeevTvT3qNlISiY8R80M?usp=drive_link)
+[demo video link](https://drive.google.com/file/d/1l2y1NhscBnMTDksxd78K5MLqCkME78W7/view?usp=drive_link)
